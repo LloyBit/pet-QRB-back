@@ -1,6 +1,5 @@
 from typing import  Dict
 from .models import TariffModel
-from fastapi import APIRouter
 
 # Словарь тарифов — можно использовать как реестр
 TARIFFS: Dict[str, TariffModel] = {
