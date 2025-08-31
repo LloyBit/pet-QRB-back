@@ -10,5 +10,16 @@ This is 2nd microservice of project which contain 3 components:
 
 3) Test-net based on ETH(or any else) by which we can provide transactions
 
-## Instalation 
+## Instalation
 
+```bash
+docker network create qrb-network # creates external docker-network
+```
+
+```bash
+python -m app.db.init_db # Creates db and tables in postgresql
+```
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload # Creates ASGI-server. Ready to client interaction
+```

@@ -1,0 +1,51 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - db_name=qr_payment_db
+      - admin_db_url=postgresql://user:user_password@postgres:5432/postgres
+      - db_url=postgresql://user:user_password@postgres:5432/qr_payment_db
+      - admin_wallet_address=0x1234567890123456789012345678901234567890
+      - redis_url=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - qrb-network
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=qr_payment_db
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=user_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    networks:
+      - qrb-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - qrb-network
+
+networks:
+  qrb-network:
+    external: true
+
+volumes:
+  postgres_data:
+  redis_data:
