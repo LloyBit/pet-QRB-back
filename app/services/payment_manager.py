@@ -20,23 +20,8 @@ class PaymentManager:
     def __init__(self, payment_processor: PaymentProcessor):
         self.payment_processor = payment_processor
     
-    async def create_payment(
-        self, 
-        user_id: int, 
-        tariff_name: str,
-        session: AsyncSession
-    ) -> Dict[str, Any]:
-        """
-        Создает новый платеж.
-        
-        Args:
-            user_id: ID пользователя
-            tariff_name: Название тарифа
-            session: Сессия базы данных
-            
-        Returns:
-            Dict с данными платежа
-        """
+    async def create_payment(self, user_id: int, tariff_name: str, session: AsyncSession) -> Dict[str, Any]:
+        """ Создает новый платеж. """
         try:
             # Получаем информацию о тарифе
             tariff = await self._get_tariff_by_name(tariff_name, session)
@@ -87,15 +72,7 @@ class PaymentManager:
             raise
     
     async def get_payment_info(self, payment_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Получает информацию о платеже.
-        
-        Args:
-            payment_id: ID платежа
-            
-        Returns:
-            Dict с данными платежа или None
-        """
+        """ Получает информацию о платеже. """
         try:
             redis_key = f"payment:{payment_id}"
             payment_data = await redis_client.get(redis_key)
@@ -109,21 +86,8 @@ class PaymentManager:
             logger.error(f"Error getting payment info for {payment_id}: {e}")
             return None
     
-    async def update_payment_from_address(
-        self, 
-        payment_id: str, 
-        from_address: str
-    ) -> bool:
-        """
-        Обновляет адрес отправителя в платеже.
-        
-        Args:
-            payment_id: ID платежа
-            from_address: Адрес отправителя
-            
-        Returns:
-            bool: True если обновление прошло успешно
-        """
+    async def update_payment_from_address(self, payment_id: str, from_address: str) -> bool:
+        """ Обновляет адрес отправителя в платеже. """
         try:
             payment_data = await self.get_payment_info(payment_id)
             if not payment_data:
@@ -151,16 +115,7 @@ class PaymentManager:
         payment_id: str,
         session: AsyncSession
     ) -> str:
-        """
-        Проверяет и обрабатывает платеж.
-        
-        Args:
-            payment_id: ID платежа
-            session: Сессия базы данных
-            
-        Returns:
-            str: Статус платежа
-        """
+        """ Проверяет и обрабатывает платеж. """
         try:
             payment_data = await self.get_payment_info(payment_id)
             if not payment_data:
@@ -186,7 +141,7 @@ class PaymentManager:
             return "not_found"
     
     async def _mark_payment_completed(self, payment_id: str) -> None:
-        """Отмечает платеж как завершенный."""
+        """ Отмечает платеж как завершенный. """
         try:
             payment_data = await self.get_payment_info(payment_id)
             if payment_data:
@@ -206,28 +161,28 @@ class PaymentManager:
             logger.error(f"Error marking payment {payment_id} as completed: {e}")
     
     async def _get_tariff_by_name(self, tariff_name: str, session: AsyncSession):
-        """Получает тариф по названию."""
+        """ Получает тариф по названию. """
         query = select(Tariffs).where(Tariffs.name == tariff_name, Tariffs.is_active == True)
         result = await session.execute(query)
         return result.scalar_one_or_none()
     
     async def _get_user(self, user_id: int, session: AsyncSession):
-        """Получает пользователя по ID."""
+        """ Получает пользователя по ID. """
         query = select(Users).where(Users.user_id == user_id)
         result = await session.execute(query)
         return result.scalar_one_or_none()
     
     def _generate_payment_id(self) -> str:
-        """Генерирует уникальный ID платежа."""
+        """ Генерирует уникальный ID платежа. """
         # Используем UUID для уникальности
         return str(uuid.uuid4())
     
     def _get_wallet_address(self) -> str:
-        """Получает адрес кошелька для оплаты."""
+        """ Получает адрес кошелька для оплаты. """
         return settings.admin_wallet_address
     
     def _prepare_qr_data(self, payment_id: str, tariff_name: str, user_id: int) -> str:
-        """Подготавливает данные для QR-кода."""
+        """ Подготавливает данные для QR-кода. """
         return (
             f"payment_id:{payment_id},"
             f"tariff:{tariff_name},"

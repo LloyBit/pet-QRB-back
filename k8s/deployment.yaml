@@ -1,0 +1,123 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pet-qrb-back-config
+data:
+  API_URL_BACK: "http://pet-qrb-back-service:8000"
+  API_URL_FRONT: "http://pet-qrb-front-service:8000"
+  DB_NAME: "pet_qrb"
+  DB_URL: "postgresql://postgres:postgres@postgres:5432/pet_qrb"
+  ADMIN_DB_URL: "postgresql://postgres:postgres@postgres:5432/pet_qrb"
+  REDIS_URL: "redis://redis:6379"
+  ADMIN_WALLET_ADDRESS: "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6"
+  NETWORK_RPC_URL: "https://sepolia.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161"
+  BLOCKCHAIN_CONFIRMATIONS: "1"
+  DEBUG: "true"
+  LOG_LEVEL: "DEBUG"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pet-qrb-back
+spec:
+  replicas: 1  # Изменить на 1
+  selector:
+    matchLabels:
+      app: pet-qrb-back
+  template:
+    metadata:
+      labels:
+        app: pet-qrb-back
+    spec:
+      containers:
+      - name: pet-qrb-back
+        image: pet-qrb-back:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8000
+        env:
+        - name: API_URL_BACK
+          valueFrom:
+            configMapKeyRef:
+              name: pet-qrb-back-config
+              key: API_URL_BACK
+        - name: API_URL_FRONT
+          valueFrom:
+            configMapKeyRef:
+              name: pet-qrb-back-config
+              key: API_URL_FRONT
+        - name: DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: pet-qrb-back-config
+              key: DB_NAME
+        - name: DB_URL
+          valueFrom:
+            configMapKeyRef:
+              name: pet-qrb-back-config
+              key: DB_URL
+        - name: ADMIN_DB_URL
+          valueFrom:
+            configMapKeyRef:
+              name: pet-qrb-back-config
+              key: ADMIN_DB_URL
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: pet-qrb-back-config
+              key: REDIS_URL
+        - name: ADMIN_WALLET_ADDRESS
+          valueFrom:
+            configMapKeyRef:
+              name: pet-qrb-back-config
+              key: ADMIN_WALLET_ADDRESS
+        - name: NETWORK_RPC_URL
+          valueFrom:
+            configMapKeyRef:
+              name: pet-qrb-back-config
+              key: NETWORK_RPC_URL
+        - name: BLOCKCHAIN_CONFIRMATIONS
+          valueFrom:
+            configMapKeyRef:
+              name: pet-qrb-back-config
+              key: BLOCKCHAIN_CONFIRMATIONS
+        - name: DEBUG
+          valueFrom:
+            configMapKeyRef:
+              name: pet-qrb-back-config
+              key: DEBUG
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: pet-qrb-back-config
+              key: LOG_LEVEL
+        - name: POSTGRES_HOST
+          value: "postgres"
+        - name: POSTGRES_PORT
+          value: "5432"
+        - name: POSTGRES_DB
+          value: "pet_qrb"
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        - name: REDIS_HOST
+          value: "redis"
+        - name: REDIS_PORT
+          value: "6379"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pet-qrb-back-service
+spec:
+  selector:
+    app: pet-qrb-back
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+  type: NodePort

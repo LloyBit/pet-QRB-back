@@ -27,11 +27,16 @@ class BlockchainChecker:
             self.wallet_address = Web3.to_checksum_address(wallet_address)
         except (InvalidAddress, ValueError) as e:
             logger.error(f"Invalid wallet address: {wallet_address}")
-            raise ValueError(f"Invalid wallet address format: {wallet_address}. Must be a valid Ethereum address.")
+            # raise ValueError(f"Invalid wallet address format: {wallet_address}. Must be a valid Ethereum address.")
+            self.wallet_address = None  # Не роняем приложение, но адрес невалидный
         
         # Проверяем подключение
         if not self.w3.is_connected():
-            raise ConnectionError("Failed to connect to Ethereum RPC")
+            # raise ConnectionError("Failed to connect to Ethereum RPC")
+            logger.error("Failed to connect to Ethereum RPC")
+            self.connection_failed = True  # Не роняем приложение, но помечаем ошибку
+        else:
+            self.connection_failed = False
         
         logger.info(f"Blockchain checker initialized for wallet: {self.wallet_address}")
     
