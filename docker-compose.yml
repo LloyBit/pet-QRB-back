@@ -9,7 +9,8 @@ services:
       - db_url=postgresql://user:user_password@postgres:5432/qr_payment_db
       - admin_wallet_address=0x1234567890123456789012345678901234567890
       - redis_url=redis://redis:6379
-      - network_rpc_url=https://sepolia.infura.io/v3/f86327bbdabe41b8bf041f4aa85b0ca8
+      - NETWORK_RPC_URL=http://localhost:8545
+      - blockchain_confirmations=3
     depends_on:
       - postgres
       - redis

@@ -7,7 +7,7 @@ data:
   API_URL_FRONT: "http://pet-qrb-front-service:8000"
   DB_NAME: "pet_qrb"
   DB_URL: "postgresql://postgres:postgres@postgres:5432/pet_qrb"
-  ADMIN_DB_URL: "postgresql://postgres:postgres@postgres:5432/pet_qrb"
+  ADMIN_DB_URL: "postgresql://postgres:postgres@postgres:5432/postgres"  # Для создания БД
   REDIS_URL: "redis://redis:6379"
   ADMIN_WALLET_ADDRESS: "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6"
   NETWORK_RPC_URL: "https://sepolia.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161"
@@ -20,7 +20,7 @@ kind: Deployment
 metadata:
   name: pet-qrb-back
 spec:
-  replicas: 1  # Изменить на 1
+  replicas: 1  
   selector:
     matchLabels:
       app: pet-qrb-back
@@ -29,6 +29,23 @@ spec:
       labels:
         app: pet-qrb-back
     spec:
+      # Добавляем init-контейнер для инициализации БД
+      initContainers:
+      - name: init-db
+        image: pet-qrb-back:latest
+        imagePullPolicy: Never
+        command: ["python", "/app/scripts/create_db.py"]
+        env:
+        - name: ADMIN_DB_URL
+          valueFrom:
+            configMapKeyRef:
+              name: pet-qrb-back-config
+              key: ADMIN_DB_URL
+        - name: DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: pet-qrb-back-config
+              key: DB_NAME
       containers:
       - name: pet-qrb-back
         image: pet-qrb-back:latest

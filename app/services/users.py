@@ -8,6 +8,7 @@ from ..models import PaymentState, UserOut
 
 
 class UsersService:
+    '''Сервис для работы с пользователями.'''
     def __init__(self, session: AsyncSession):
         self.session = session
 

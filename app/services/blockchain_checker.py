@@ -1,7 +1,10 @@
+import hashlib
 import logging
 from typing import Optional, Dict, Any
 from web3 import Web3
-from web3.exceptions import TransactionNotFound, BlockNotFound, InvalidAddress
+from web3.exceptions import TransactionNotFound, InvalidAddress
+
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -34,68 +37,32 @@ class BlockchainChecker:
         if not self.w3.is_connected():
             # raise ConnectionError("Failed to connect to Ethereum RPC")
             logger.error("Failed to connect to Ethereum RPC")
-            self.connection_failed = True  # Не роняем приложение, но помечаем ошибку
-        else:
-            self.connection_failed = False
         
         logger.info(f"Blockchain checker initialized for wallet: {self.wallet_address}")
     
-    async def check_transaction_confirmation(
-        self, 
-        payment_id: str, 
-        expected_amount: int,
-        from_address: Optional[str] = None,
-        min_timestamp: Optional[int] = None
-    ) -> bool:
-        """
-        Проверяет подтверждение транзакции в блокчейне.
+    async def check_transaction_confirmation(self, payment_id: str, **kwargs):
+        # Конвертируем payment_id в bytes32
+        payment_hash = hashlib.sha256(payment_id.encode()).digest()[:32]
         
-        Args:
-            payment_id: ID платежа (может использоваться для поиска в данных транзакции)
-            expected_amount: Ожидаемая сумма в wei
-            from_address: Ожидаемый адрес отправителя (опционально)
-            min_timestamp: Минимальная временная метка блока (опционально)
-            
-        Returns:
-            bool: True если транзакция подтверждена
-        """
-        try:
-            # Получаем последний блок
-            latest_block = self.w3.eth.block_number
-            
-            # Ищем транзакции в последних блоках
-            for block_number in range(latest_block - 100, latest_block + 1):
-                try:
-                    block = self.w3.eth.get_block(block_number, full_transactions=True)
-                    
-                    # Проверяем временную метку если указана
-                    if min_timestamp and block.timestamp < min_timestamp:
-                        continue
-                    
-                    # Проверяем все транзакции в блоке
-                    for tx in block.transactions:
-                        if await self._validate_transaction(tx, expected_amount, from_address, payment_id):
-                            # Проверяем количество подтверждений
-                            confirmations = latest_block - block_number
-                            if confirmations >= self.required_confirmations:
-                                logger.info(f"Transaction confirmed for payment {payment_id}: {tx.hash.hex()}")
-                                return True
-                            else:
-                                logger.info(f"Transaction found but not enough confirmations for payment {payment_id}: {confirmations}/{self.required_confirmations}")
-                                return False
-                                
-                except BlockNotFound:
-                    continue
-                except Exception as e:
-                    logger.warning(f"Error processing block {block_number}: {e}")
-                    continue
-            
-            logger.info(f"No confirmed transaction found for payment {payment_id}")
-            return False
-            
-        except Exception as e:
-            logger.error(f"Error checking blockchain for payment {payment_id}: {e}")
-            return False
+        # Ищем событие PaymentReceived
+        contract = self.w3.eth.contract(
+            address=settings.contract_address,
+            abi=settings.contract_abi
+        )
+        
+        # Фильтруем события по payment_hash
+        event_filter = contract.events.PaymentReceived.create_filter(
+            fromBlock='latest',
+            argument_filters={'paymentId': payment_hash}
+        )
+        
+        events = event_filter.get_all_entries()
+        
+        for event in events:
+            if event.args.paymentId == payment_hash:
+                return True
+        
+        return False
     
     async def _validate_transaction(
         self, 
@@ -143,15 +110,7 @@ class BlockchainChecker:
             return False
     
     async def get_transaction_details(self, tx_hash: str) -> Optional[Dict[str, Any]]:
-        """
-        Получает детали транзакции по хешу.
-        
-        Args:
-            tx_hash: Хеш транзакции
-            
-        Returns:
-            Dict с деталями транзакции или None
-        """
+        """ Получает детали транзакции по хешу. """
         try:
             tx = self.w3.eth.get_transaction(tx_hash)
             tx_receipt = self.w3.eth.get_transaction_receipt(tx_hash)
@@ -175,12 +134,7 @@ class BlockchainChecker:
             return None
     
     def get_wallet_balance(self) -> int:
-        """
-        Получает баланс кошелька.
-        
-        Returns:
-            int: Баланс в wei
-        """
+        """ Получает баланс кошелька в wei """
         try:
             return self.w3.eth.get_balance(self.wallet_address)
         except Exception as e:

@@ -8,9 +8,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..infrastructure.db.postgres.schemas import Tariffs, Users
+from ..infrastructure.db.postgres.schemas import Tariffs, Users, Transactions
 from ..infrastructure.db.redis.redis import redis_client
+from ..models import CreatePaymentRequest, CreatePaymentResponse
 from .payment_processor import PaymentProcessor
+from .qr_generator import QRCodeService
 
 logger = logging.getLogger(__name__)
 
@@ -19,57 +21,44 @@ class PaymentManager:
     
     def __init__(self, payment_processor: PaymentProcessor):
         self.payment_processor = payment_processor
+        self.qr_service = QRCodeService()
     
-    async def create_payment(self, user_id: int, tariff_name: str, session: AsyncSession) -> Dict[str, Any]:
-        """ Создает новый платеж. """
-        try:
-            # Получаем информацию о тарифе
-            tariff = await self._get_tariff_by_name(tariff_name, session)
-            if not tariff:
-                raise ValueError(f"Tariff '{tariff_name}' not found")
-            
-            # Проверяем пользователя
-            user = await self._get_user(user_id, session)
-            if not user:
-                raise ValueError(f"User {user_id} not found")
-            
-            # Генерируем уникальный payment_id
-            payment_id = self._generate_payment_id()
-            
-            # Создаем данные платежа
-            payment_data = {
-                "payment_id": payment_id,
-                "user_id": user_id,
-                "tariff_id": tariff.tariff_id,
-                "tariff_name": tariff_name,
-                "amount": tariff.price,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "status": "pending",
-                "from_address": None,  # Будет заполнено при оплате
-                "transaction_hash": None  # Будет заполнено при подтверждении
-            }
-            
-            # Сохраняем в Redis с TTL (например, 24 часа)
-            redis_key = f"payment:{payment_id}"
-            await redis_client.set(
-                redis_key, 
-                json.dumps(payment_data), 
-                ex=86400  # 24 часа
-            )
-            
-            logger.info(f"Created payment {payment_id} for user {user_id}, tariff {tariff_name}")
-            
-            return {
-                "payment_id": payment_id,
-                "amount": tariff.price,
-                "tariff_name": tariff_name,
-                "wallet_address": self._get_wallet_address(),
-                "qr_data": self._prepare_qr_data(payment_id, tariff_name, user_id)
-            }
-            
-        except Exception as e:
-            logger.error(f"Error creating payment for user {user_id}, tariff {tariff_name}: {e}")
-            raise
+    async def create_payment(self, request: CreatePaymentRequest, session: AsyncSession):
+        # Генерируем payment_id
+        payment_id = str(uuid.uuid4())
+        
+        # Получаем тариф
+        tariff = await self._get_tariff_by_name(request.tariff_name, session)
+        
+        # Создаем запись в PostgreSQL (со статусом "pending")
+        transaction = Transactions(
+            payment_id=payment_id,
+            user_id=request.user_id,
+            tariff_id=tariff.id,
+            amount=tariff.price,
+            status="pending",  # Новое поле
+            created_at=datetime.now(timezone.utc)
+        )
+        session.add(transaction)
+        await session.commit()
+        
+        # Сохраняем в Redis для быстрого доступа
+        payment_data = {
+            "payment_id": payment_id,
+            "user_id": request.user_id,
+            "tariff_id": tariff.id,
+            "amount": tariff.price,
+            "status": "pending"
+        }
+        await redis_client.set(f"payment:{payment_id}", json.dumps(payment_data))
+        
+        return CreatePaymentResponse(
+            payment_id=payment_id,
+            amount=tariff.price,
+            tariff_name=tariff.name,
+            wallet_address=settings.admin_wallet_address,
+            qr_data=f"pay:{payment_id}"  # Можно расширить для передачи QR-изображения
+        )
     
     async def get_payment_info(self, payment_id: str) -> Optional[Dict[str, Any]]:
         """ Получает информацию о платеже. """
@@ -181,11 +170,3 @@ class PaymentManager:
         """ Получает адрес кошелька для оплаты. """
         return settings.admin_wallet_address
     
-    def _prepare_qr_data(self, payment_id: str, tariff_name: str, user_id: int) -> str:
-        """ Подготавливает данные для QR-кода. """
-        return (
-            f"payment_id:{payment_id},"
-            f"tariff:{tariff_name},"
-            f"user_id:{user_id},"
-            f"wallet:{self._get_wallet_address()}"
-        )

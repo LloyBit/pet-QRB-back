@@ -21,65 +21,27 @@ class PaymentProcessor:
         if not self.blockchain_checker:
             logger.warning("BlockchainChecker not provided - using mock implementation")
     
-    async def check_and_process_payment(
-        self, 
-        payment_id: str, 
-        user_id: int, 
-        tariff_id: int, 
-        amount: int,
-        session: AsyncSession
-    ) -> str:
-        """
-        Проверяет статус платежа и обрабатывает его при подтверждении.
-        Используется для мануального опроса блокчейна.
+    async def process_confirmed_payment(self, payment_id: str, session: AsyncSession):
+        # Обновляем статус в PostgreSQL
+        query = select(Transactions).where(Transactions.payment_id == payment_id)
+        result = await session.execute(query)
+        transaction = result.scalar_one_or_none()
         
-        Args:
-            payment_id: ID платежа
-            user_id: ID пользователя
-            tariff_id: ID тарифа
-            amount: Сумма платежа в wei
-            session: Сессия базы данных
+        if transaction and transaction.status == "pending":
+            transaction.status = "confirmed"
+            transaction.confirmed_at = datetime.now(timezone.utc)
             
-        Returns:
-            str: Статус платежа ("Accepted", "In_progress", "not_found")
-        """
-        try:
-            # Сначала проверяем PostgreSQL
-            transaction = await self._get_transaction(payment_id, session)
-            if transaction:
-                return "Accepted"
+            # Обновляем тариф пользователя
+            await self._update_user_tariff(transaction.user_id, transaction.tariff_id, session)
             
-            # Проверяем флаг миграции
-            migration_key = f"migrating:{payment_id}"
-            is_migrating = await redis_client.get(migration_key)
-            if is_migrating:
-                return "In_progress"
+            await session.commit()
             
-            # Проверяем Redis (новый формат с payment: префиксом)
-            redis_key = f"payment:{payment_id}"
-            redis_data = await redis_client.get(redis_key)
-            if not redis_data:
-                return "not_found"
+            # Удаляем из Redis
+            await redis_client.delete(f"payment:{payment_id}")
             
-            # Если данные есть в Redis, проверяем блокчейн
-            blockchain_confirmed = await self._check_blockchain_transaction(payment_id, amount)
-            
-            if blockchain_confirmed:
-                # Платеж подтвержден в блокчейне - мигрируем в PostgreSQL
-                success = await self._migrate_payment_to_postgres(
-                    payment_id, user_id, tariff_id, amount, session
-                )
-                if success:
-                    return "Accepted"
-                else:
-                    return "In_progress"  # Ошибка миграции, но платеж подтвержден
-            else:
-                return "In_progress"  # Платеж в Redis, но не подтвержден в блокчейне
-                
-        except Exception as e:
-            logger.error(f"Error checking payment {payment_id}: {e}")
-            return "not_found"
-    
+            return True
+        
+        return False
     async def _check_blockchain_transaction(self, payment_id: str, expected_amount: int) -> bool:
         """
         Проверяет подтверждение транзакции в блокчейне.

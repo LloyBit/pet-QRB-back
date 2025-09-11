@@ -29,7 +29,6 @@ async_session_factory = async_sessionmaker(
 
 Base = declarative_base()
 
-
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     '''
     Dependency function for FastAPI to inject database sessions

@@ -4,6 +4,7 @@ from ..infrastructure.db.redis.redis import redis_client
 
 
 class HealthService:
+    '''Сервис для проверки здоровья системы.'''
     @staticmethod
     async def check_db_pool():
         """Проверка пула соединений к базе"""

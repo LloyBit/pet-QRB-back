@@ -7,7 +7,7 @@ from ..models import TariffCreate, PatchTariffModel
 
 
 class TariffsService:
-
+    '''Сервис для работы с тарифами.'''
     @staticmethod
     async def create(session: AsyncSession, data: TariffCreate):
         tariff = Tariffs(**data.model_dump())

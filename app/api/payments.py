@@ -54,13 +54,13 @@ async def get_payment_info(payment_id: str):
 
 @router.post("/qr_code")
 @handle_errors("Error generating QR code")
-async def get_qr_code_image(query: qr_code_query):
+async def get_qr_code_image(query: qr_code_query, session: AsyncSession = Depends(get_session)):
     """Генерирует QR-код для указанного пользователем тарифа."""
     qr_service = container.get_qr_service()
-    qr_image = qr_service.build_qr_image(
+    qr_image = await qr_service.build_qr_image(
         tariff_name=query.tariff_name,
-        user_id=str(query.user_id),
-        payment_id=None 
+        user_id=query.user_id,
+        session=session
     )
     return StreamingResponse(
         qr_image,

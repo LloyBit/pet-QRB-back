@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     # Blockchain settings
     admin_wallet_address: str 
     network_rpc_url: str
-    blockchain_confirmations: int = 3
+    blockchain_confirmations: int 
+    chain_id: int
     
     # Logging settings
     debug: bool = False

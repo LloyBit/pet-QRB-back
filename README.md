@@ -1,31 +1,153 @@
-# qr-payment-server
+# QR Payment Server
 
-## About
+Backend сервис для системы QR-платежей с поддержкой блокчейн-транзакций.
 
-This is 2nd microservice of project which contain 3 components:
+## Описание
 
-1) TG-bot which connects via API with backend server and show QR-code for payment and access token if payment valid
+Микросервис для обработки платежей через QR-коды с интеграцией блокчейн-сети. Включает:
 
-2) Python-backend server which is able to validate transaction, generate qr-codes and generate tokens
+- **Генерацию QR-кодов** для платежей
+- **Валидацию блокчейн-транзакций** 
+- **Управление пользователями и тарифами**
+- **Мониторинг состояния платежей**
 
-3) Test-net based on ETH(or any else) by which we can provide transactions
+## Технологический стек
 
-## Initialization local machine
+- **FastAPI** - веб-фреймворк
+- **PostgreSQL** - основная база данных
+- **Redis** - кэширование и сессии
+- **SQLAlchemy** - ORM
+- **Web3.py** - работа с блокчейном
+- **Alembic** - миграции БД
+- **Docker** - контейнеризация
 
-```bash
-python -m app.db.init_db # Creates db and tables in postgresql
+## Архитектура
+
+```tree
+app/
+├── api/           # API endpoints
+├── services/      # Бизнес-логика
+├── models.py      # Pydantic модели
+├── config.py      # Конфигурация
+└── infrastructure/
+    ├── db/        # База данных
+    ├── middleware/ # Middleware
+    └── logger_config.py
 ```
 
+## API Endpoints
+
+### Платежи (`/payments`)
+
+- `POST /create` - создание платежа
+- `GET /check/{payment_id}` - проверка статуса платежа
+- `GET /status/{payment_id}` - получение статуса
+- `GET /info/{payment_id}` - информация о платеже
+- `POST /qr_code` - генерация QR-кода
+- `POST /{payment_id}/from_address` - обновление адреса отправителя
+
+### Пользователи (`/users`)
+
+- `POST /` - создание пользователя
+- `GET /{user_id}` - получение пользователя
+- `PATCH /{user_id}` - обновление пользователя
+- `DELETE /{user_id}` - удаление пользователя
+
+### Тарифы (`/tariffs`)
+
+- `POST /` - создание тарифа
+- `GET /` - список всех тарифов
+- `GET /{name}` - получение тарифа по имени
+- `PATCH /{name}` - обновление тарифа
+- `DELETE /{name}` - удаление тарифа
+
+### Мониторинг (`/monitoring`)
+
+- `GET /health` - проверка здоровья сервиса
+
+## Установка и запуск
+
+### Локальная разработка
+
+1. **Установка зависимостей:**
+
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload # Creates ASGI-server. Ready to client interaction
+pip install -r requirements.txt
 ```
 
-## Initialization docker
+2. **Настройка переменных окружения:**
 
 ```bash
-docker network create qrb-network # creates external docker-network
+cp env.example .env
+# Отредактируйте .env файл
 ```
+
+3. **Инициализация базы данных:**
+
+```bash
+python -m app.db.init_db
+```
+
+4. **Запуск сервера:**
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Docker
+
+1. **Создание сети:**
+
+```bash
+docker network create qrb-network
+```
+
+2. **Запуск всех сервисов:**
 
 ```bash
 docker-compose up --build
 ```
+
+## Переменные окружения
+
+| Переменная | Описание | Пример |
+|------------|----------|---------|
+| `DB_NAME` | Имя базы данных | `qr_payment_db` |
+| `DB_URL` | URL подключения к БД | `postgresql://user:pass@localhost:5432/db` |
+| `ADMIN_DB_URL` | URL админской БД | `postgresql://user:pass@localhost:5432/postgres` |
+| `REDIS_URL` | URL Redis | `redis://localhost:6379` |
+| `ADMIN_WALLET_ADDRESS` | Адрес кошелька администратора | `0x1234...` |
+| `NETWORK_RPC_URL` | RPC URL блокчейн-сети | `http://localhost:8545` |
+| `BLOCKCHAIN_CONFIRMATIONS` | Количество подтверждений | `3` |
+
+## Структура проекта
+
+- **`/api`** - REST API endpoints
+- **`/services`** - бизнес-логика приложения
+- **`/infrastructure`** - инфраструктурные компоненты
+- **`/models.py`** - Pydantic модели данных
+- **`/config.py`** - конфигурация приложения
+
+## Логирование
+
+Логи сохраняются в директории `logs/`:
+
+- `app.log` - основные логи приложения
+- Настраиваемые уровни логирования через переменные окружения
+
+## Разработка
+
+### Структура сервисов
+
+Сервисы организованы с четким разделением ответственности:
+
+- **API слой** - только маршрутизация и валидация
+- **Service слой** - бизнес-логика
+- **Infrastructure слой** - работа с внешними системами
+
+### Добавление новых endpoints
+
+1. Создайте модель в `models.py`
+2. Добавьте endpoint в соответствующий файл в `api/`
+3. Реализуйте бизнес-логику в `services/`
+4. Обновите роутер в `api/__init__.py`

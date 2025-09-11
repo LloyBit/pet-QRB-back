@@ -2,9 +2,10 @@ from datetime import datetime, timezone
 
 from dateutil.relativedelta import relativedelta
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
-from sqlalchemy.orm import declarative_base, relationship 
+from sqlalchemy.orm import relationship 
 
-Base = declarative_base()
+# Импортируем Base из database.py вместо создания нового
+from app.infrastructure.db.postgres.database import Base
 
 class Users(Base):
     __tablename__ = 'users'
