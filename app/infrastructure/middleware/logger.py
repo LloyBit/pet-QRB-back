@@ -7,6 +7,7 @@ import uuid
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)

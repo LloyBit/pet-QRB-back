@@ -1,13 +1,14 @@
 import json
 import logging
 import traceback
-from typing import Callable, Dict, Any
+from typing import Callable
 
 from fastapi import HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)

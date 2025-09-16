@@ -1,6 +1,7 @@
-from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional
 from enum import Enum as PyEnum
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 # Enum для состояний платежа
 class PaymentState(PyEnum):

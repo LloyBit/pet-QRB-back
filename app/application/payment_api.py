@@ -1,7 +1,6 @@
 from typing import Any, Dict
 
 from fastapi import HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import CreatePaymentRequest, UpdateFromAddressRequest
 from .payment_manager import PaymentManager
@@ -14,14 +13,12 @@ class PaymentAPIService:
         self.payment_manager = payment_manager
         self.payment_processor = payment_processor
     
-    async def create_payment(self, request: CreatePaymentRequest, session: AsyncSession) -> Dict[str, Any]:
+    async def create_payment(self, request: CreatePaymentRequest) -> Dict[str, Any]:
         """Создает новый платеж."""
-        payment_data = await self.payment_manager.create_payment(
+        return await self.payment_manager.create_payment(
             user_id=request.user_id,
-            tariff_name=request.tariff_name,
-            session=session
+            tariff_name=request.tariff_name
         )
-        return payment_data
     
     async def update_from_address(self, payment_id: str, request: UpdateFromAddressRequest) -> Dict[str, Any]:
         """Обновляет адрес отправителя."""
@@ -35,11 +32,10 @@ class PaymentAPIService:
         
         return {"status": "success", "message": "From address updated"}
     
-    async def check_payment(self, payment_id: str, session: AsyncSession) -> Dict[str, Any]:
+    async def check_payment(self, payment_id: str) -> Dict[str, Any]:
         """Проверяет статус платежа."""
         status = await self.payment_manager.check_and_process_payment(
-            payment_id=payment_id,
-            session=session
+            payment_id=payment_id
         )
         
         if status == "not_found":
@@ -51,9 +47,9 @@ class PaymentAPIService:
             "message": "Payment status checked and processed if confirmed"
         }
     
-    async def get_payment_status(self, payment_id: str, session: AsyncSession) -> Dict[str, Any]:
+    async def get_payment_status(self, payment_id: str) -> Dict[str, Any]:
         """Получает статус платежа без обработки."""
-        status = await self.payment_processor.get_payment_status_safe(payment_id, session)
+        status = await self.payment_processor.get_payment_status_safe(payment_id)
         
         if status == "not_found":
             raise HTTPException(status_code=404, detail="Payment not found")

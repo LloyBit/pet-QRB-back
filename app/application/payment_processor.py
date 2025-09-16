@@ -3,9 +3,9 @@ import logging
 
 from dateutil.relativedelta import relativedelta
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..infrastructure.db.postgres.schemas import Transactions, Users
+from ..infrastructure.db.postgres.database import db_helper
 from ..infrastructure.db.redis.redis import redis_client
 from .blockchain_checker import BlockchainChecker
 
@@ -21,27 +21,69 @@ class PaymentProcessor:
         if not self.blockchain_checker:
             logger.warning("BlockchainChecker not provided - using mock implementation")
     
-    async def process_confirmed_payment(self, payment_id: str, session: AsyncSession):
-        # Обновляем статус в PostgreSQL
-        query = select(Transactions).where(Transactions.payment_id == payment_id)
-        result = await session.execute(query)
-        transaction = result.scalar_one_or_none()
-        
-        if transaction and transaction.status == "pending":
-            transaction.status = "confirmed"
-            transaction.confirmed_at = datetime.now(timezone.utc)
+    async def process_confirmed_payment(self, payment_id: str):
+        async with db_helper.transaction() as session:
+            # Обновляем статус в PostgreSQL
+            query = select(Transactions).where(Transactions.payment_id == payment_id)
+            result = await session.execute(query)
+            transaction = result.scalar_one_or_none()
             
-            # Обновляем тариф пользователя
-            await self._update_user_tariff(transaction.user_id, transaction.tariff_id, session)
+            if transaction and transaction.status == "pending":
+                transaction.status = "confirmed"
+                transaction.confirmed_at = datetime.utcnow()
+                
+                # Обновляем тариф пользователя
+                await self._update_user_tariff(transaction.user_id, transaction.tariff_id, session)
+                
+                # Удаляем из Redis
+                await redis_client.delete(f"payment:{payment_id}")
+                
+                return True
             
-            await session.commit()
+            return False
+    
+    async def check_and_process_payment(self, payment_id: str, user_id: int, tariff_id: int, amount: int) -> str:
+        """Проверяет и обрабатывает платеж."""
+        async with db_helper.transaction() as session:
+            # Проверяем блокчейн
+            confirmed = await self._check_blockchain_transaction(payment_id, amount)
             
-            # Удаляем из Redis
-            await redis_client.delete(f"payment:{payment_id}")
+            if confirmed:
+                # Мигрируем в PostgreSQL
+                success = await self._migrate_payment_to_postgres(
+                    payment_id, user_id, tariff_id, amount, session
+                )
+                
+                if success:
+                    return "Accepted"
+                else:
+                    return "Error"
+            else:
+                return "In_progress"
+    
+    async def get_payment_status_safe(self, payment_id: str) -> str:
+        """Безопасная проверка статуса платежа с учетом миграции."""
+        async with db_helper.session_only() as session:
+            # Сначала проверяем PostgreSQL
+            transaction = await self._get_transaction(payment_id, session)
+            if transaction:
+                return "Accepted"
             
-            return True
-        
-        return False
+            # Проверяем флаг миграции
+            migration_key = f"migrating:{payment_id}"
+            is_migrating = await redis_client.get(migration_key)
+            if is_migrating:
+                return "In_progress"
+            
+            # Проверяем Redis
+            redis_key = f"payment:{payment_id}"
+            redis_data = await redis_client.get(redis_key)
+            if redis_data:
+                return "In_progress"
+            
+            return "not_found"
+    
+    # Остальные приватные методы остаются с сессиями как параметрами
     async def _check_blockchain_transaction(self, payment_id: str, expected_amount: int) -> bool:
         """
         Проверяет подтверждение транзакции в блокчейне.
@@ -100,13 +142,12 @@ class PaymentProcessor:
             logger.error(f"Error checking blockchain for payment {payment_id}: {e}")
             return False
     
-    async def _migrate_payment_to_postgres(
-        self, 
+    async def _migrate_payment_to_postgres(self, 
         payment_id: str, 
         user_id: int, 
         tariff_id: int, 
         amount: int,
-        session: AsyncSession
+        session
     ) -> bool:
         """Атомарно мигрирует платеж из Redis в PostgreSQL."""
         migration_key = f"migrating:{payment_id}"
@@ -146,7 +187,7 @@ class PaymentProcessor:
             await redis_client.delete(migration_key)
             return False
     
-    async def _get_transaction(self, payment_id: str, session: AsyncSession):
+    async def _get_transaction(self, payment_id: str, session):
         """Получает транзакцию из PostgreSQL."""
         query = select(Transactions).where(Transactions.payment_id == payment_id)
         result = await session.execute(query)
@@ -158,7 +199,7 @@ class PaymentProcessor:
         user_id: int, 
         tariff_id: int, 
         amount: int,
-        session: AsyncSession
+        session
     ) -> bool:
         """Создает запись транзакции в PostgreSQL."""
         try:
@@ -168,20 +209,18 @@ class PaymentProcessor:
                 user_id=user_id,
                 tariff_id=tariff_id,
                 amount=amount,
-                created_at=datetime.now(timezone.utc),
-                expired_at=datetime.now(timezone.utc) + relativedelta(months=+1)
+                created_at=datetime.utcnow(),
+                expired_at=datetime.utcnow() + relativedelta(months=+1)
             )
             
             session.add(transaction)
-            await session.commit()
             return True
             
         except Exception as e:
             logger.error(f"Error creating transaction {payment_id}: {e}")
-            await session.rollback()
             return False
     
-    async def _update_user_tariff(self, user_id: int, tariff_id: int, session: AsyncSession):
+    async def _update_user_tariff(self, user_id: int, tariff_id: int, session):
         """Обновляет тариф пользователя."""
         try:
             # Получаем пользователя
@@ -192,38 +231,9 @@ class PaymentProcessor:
             if user:
                 # Обновляем тариф и срок действия
                 user.tariff_id = tariff_id
-                user.tariff_expires_at = datetime.now(timezone.utc) + relativedelta(months=+1)
-                await session.commit()
+                user.tariff_expires_at = datetime.utcnow() + relativedelta(months=+1)
                 logger.info(f"Updated user {user_id} tariff to {tariff_id}")
             
         except Exception as e:
             logger.error(f"Error updating user {user_id} tariff: {e}")
-            await session.rollback()
-    
-    async def get_payment_status_safe(self, payment_id: str, session: AsyncSession) -> str:
-        """
-        Безопасная проверка статуса платежа с учетом миграции.
-        """
-        try:
-            # Сначала проверяем PostgreSQL
-            transaction = await self._get_transaction(payment_id, session)
-            if transaction:
-                return "Accepted"
-            
-            # Проверяем флаг миграции
-            migration_key = f"migrating:{payment_id}"
-            is_migrating = await redis_client.get(migration_key)
-            if is_migrating:
-                return "In_progress"
-            
-            # Проверяем Redis (новый формат)
-            redis_key = f"payment:{payment_id}"
-            redis_data = await redis_client.get(redis_key)
-            if redis_data:
-                return "In_progress"
-            
-            return "not_found"
-            
-        except Exception as e:
-            logger.error(f"Error in get_payment_status_safe for {payment_id}: {e}")
-            return "not_found"
+            raise

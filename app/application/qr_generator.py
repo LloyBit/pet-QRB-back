@@ -1,15 +1,15 @@
+from datetime import datetime
+import hashlib
 from io import BytesIO
 import logging
-import hashlib
 import uuid
-from datetime import datetime, timezone
 
 import qrcode
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.config import settings
-from app.infrastructure.db.postgres.schemas import Tariffs, Transactions
-from sqlalchemy import select
+from app.infrastructure.db.postgres.schemas import Tariffs, Transactions, Users
+from app.infrastructure.db.postgres.database import db_helper
 
 logger = logging.getLogger(__name__)
 
@@ -75,41 +75,55 @@ class QRCodeService:
         bio.seek(0)
         return bio
 
-    async def build_qr_image(self, tariff_name: str, user_id: int, session: AsyncSession, gas_limit: int = 100000) -> BytesIO:
+    async def build_qr_image(self, tariff_name: str, user_id: int, gas_limit: int = 100000) -> BytesIO:
         """ 
         Генерирует bytesIO QR-код для платежа.
         
         Создает транзакцию в БД по tariff_name и user_id, затем генерирует QR-код с calldata.
         """
-        # Получаем тариф
-        tariff = await self._get_tariff_by_name(tariff_name, session)
-        if not tariff:
-            raise ValueError(f"Tariff '{tariff_name}' not found")
-        
-        # Генерируем payment_id
-        payment_id = str(uuid.uuid4())
-        
-        # Создаем запись транзакции в БД
-        transaction = Transactions(
-            payment_id=payment_id,
-            user_id=user_id,
-            tariff_id=tariff.id,
-            amount=tariff.price,
-            status="pending",
-            created_at=datetime.now(timezone.utc)
-        )
-        session.add(transaction)
-        await session.commit()
-        
-        # Генерируем calldata с payment_id
-        calldata = self._build_calldata(payment_id)
-        data = self._prepare_qr_data(self.address, self.chain_id, tariff.price, gas_limit, calldata)
-        
-        logger.info(f"Created transaction {payment_id} for user {user_id}, tariff {tariff_name}")
-        logger.info(f"QR Data: {data}")
-        return self._generate_qr_code_image(data)
+        async with db_helper.transaction() as session:
+            # Убеждаемся, что пользователь существует в PostgreSQL
+            await self._ensure_user_exists_internal(user_id, session)
+            
+            # Получаем тариф
+            tariff = await self._get_tariff_by_name_internal(tariff_name, session)
+            if not tariff:
+                raise ValueError(f"Tariff '{tariff_name}' not found")
+            
+            # Генерируем payment_id
+            payment_id = str(uuid.uuid4())
+            
+            # Создаем запись транзакции в БД
+            transaction = Transactions(
+                payment_id=payment_id,
+                user_id=user_id,
+                tariff_id=tariff.tariff_id,
+                amount=tariff.price,
+                status="pending",
+                created_at=datetime.utcnow()
+            )
+            session.add(transaction)
+            
+            # Генерируем calldata с payment_id
+            calldata = self._build_calldata(payment_id)
+            data = self._prepare_qr_data(self.address, self.chain_id, tariff.price, gas_limit, calldata)
+            
+            logger.info(f"Created transaction {payment_id} for user {user_id}, tariff {tariff_name}")
+            logger.info(f"QR Data: {data}")
+            return self._generate_qr_code_image(data)
     
-    async def _get_tariff_by_name(self, tariff_name: str, session: AsyncSession):
+    async def _ensure_user_exists_internal(self, user_id: int, session) -> None:
+        """Убеждается, что пользователь существует в PostgreSQL"""
+        query = select(Users).where(Users.user_id == user_id)
+        result = await session.execute(query)
+        existing_user = result.scalar_one_or_none()
+        
+        if not existing_user:
+            user = Users(user_id=user_id)
+            session.add(user)
+            logger.info(f"Created user {user_id} in PostgreSQL")
+    
+    async def _get_tariff_by_name_internal(self, tariff_name: str, session) -> Tariffs:
         """ Получает тариф по названию. """
         query = select(Tariffs).where(Tariffs.name == tariff_name, Tariffs.is_active == True)
         result = await session.execute(query)

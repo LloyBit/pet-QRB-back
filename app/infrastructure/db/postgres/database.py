@@ -1,3 +1,6 @@
+# TODO: Вынести в класс DatabaseHelper
+
+from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -5,75 +8,51 @@ from sqlalchemy.orm import declarative_base
 
 from app.config import settings
 
-DATABASE_URL = settings.db_url.replace("postgresql://", "postgresql+asyncpg://")
+class DatabaseHelper:
+    def __init__(self):
+        self.database_url = settings.db_url.replace("postgresql://", "postgresql+asyncpg://")
+        # Конфигурируем движок с пулом соединений для асинхронного использования
+        self.engine = create_async_engine(
+            self.database_url, 
+            echo=False, 
+            pool_size=10, 
+            max_overflow=20,
+            pool_pre_ping=True,
+            pool_recycle=3600,
+            pool_timeout=30
+            )
+        # Создаем фабрику сессий с конфигурацией пула
+        self.async_session_factory = async_sessionmaker(
+            self.engine,
+            expire_on_commit=False,
+            class_=AsyncSession
+        )
+        # Создаем базу данных
+        self.Base = declarative_base()
 
-# Configure the engine with connection pooling for async
-engine = create_async_engine(
-    DATABASE_URL,
-    echo=False,
-    pool_size=10,  # Reduced pool size for better management
-    max_overflow=20,  # Additional connections that can be created beyond pool_size
-    pool_pre_ping=True,  # Validate connections before use
-    pool_recycle=3600,  # Recycle connections after 1 hour
-    pool_timeout=30,  # Timeout for getting connection from pool
-)
+    @asynccontextmanager
+    async def session_only(self) -> AsyncGenerator[AsyncSession, None]:
+        """Контекстный менеджер только для сессии без автоматического коммита"""
+        async with self.async_session_factory() as session:
+            try:
+                yield session
+            except Exception:
+                await session.rollback()
+                raise
+            
+    @asynccontextmanager
+    async def transaction(self) -> AsyncGenerator[AsyncSession, None]:
+        ''' Функция для создания транзакции '''
+        async with self.async_session_factory() as session:
+            try:
+                yield session
+                await session.commit()  # Автоматический коммит
+            except Exception:
+                await session.rollback()
+                raise
 
-# Create session factory with pool configuration
-async_session_factory = async_sessionmaker(
-    engine,
-    expire_on_commit=False,
-    class_=AsyncSession,
-    autoflush=False,
-    autocommit=False,
-)
-
-Base = declarative_base()
-
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    '''
-    Dependency function for FastAPI to inject database sessions
-    
-    This uses connection pooling for better performance and resource management.
-    Sessions are automatically managed by FastAPI's dependency injection system.
-    '''
-    async with async_session_factory() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
-
-
-# Optional: Function to get session pool stats
-async def get_pool_stats():
-    """Get connection pool statistics for monitoring"""
-    try:
-        checked_in = engine.pool.checkedin()
-        checked_out = engine.pool.checkedout()
-        pool_size = engine.pool.size()
-        overflow = engine.pool.overflow()
+    async def close(self):
+        """Мягкое закрытие соединения с базой данных"""
+        await self.engine.dispose()
         
-        return {
-            "pool_size": pool_size,
-            "checked_in": max(0, checked_in),
-            "checked_out": max(0, checked_out),
-            "overflow": max(0, overflow),
-            "pool_status": "active",
-            "total_connections": checked_in + checked_out,
-            "available_connections": max(0, checked_in),
-            "busy_connections": max(0, checked_out),
-            "pool_utilization": f"{((checked_out / pool_size) * 100):.1f}%" if pool_size > 0 else "0%",
-            "overflow_usage": f"{((overflow / pool_size) * 100):.1f}%" if pool_size > 0 and overflow > 0 else "0%"
-        }
-    except Exception as e:
-        return {
-            "pool_size": 0,
-            "checked_in": 0,
-            "checked_out": 0,
-            "overflow": 0,
-            "pool_status": "error",
-            "error": str(e)
-        }
+db_helper = DatabaseHelper()

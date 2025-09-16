@@ -8,11 +8,15 @@ class Settings(BaseSettings):
     admin_db_url: str  
     redis_url: str
     
+    # Kafka settings
+    kafka_url: str
+    
     # Blockchain settings
     admin_wallet_address: str 
     network_rpc_url: str
     blockchain_confirmations: int 
     chain_id: int
+    
     
     # Logging settings
     debug: bool = False

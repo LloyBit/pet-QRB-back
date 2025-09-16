@@ -1,14 +1,13 @@
 import hashlib
 import logging
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
 from web3 import Web3
-from web3.exceptions import TransactionNotFound, InvalidAddress
+from web3.exceptions import InvalidAddress, TransactionNotFound
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
-
-# TODO: проверить на асинхронность
 
 class BlockchainChecker:
     """Сервис для проверки транзакций в блокчейне Ethereum."""
