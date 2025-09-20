@@ -2,17 +2,18 @@ from datetime import datetime
 import json
 import logging
 from typing import Any, Dict, Optional
+from uuid import UUID
 import uuid
 
 from sqlalchemy import select
 
-from ..config import settings
-from ..infrastructure.db.postgres.schemas import Tariffs, Transactions, Users
-from ..infrastructure.db.postgres.database import db_helper
-from ..infrastructure.db.redis.redis import redis_client
-from ..models import CreatePaymentRequest, CreatePaymentResponse
-from .payment_processor import PaymentProcessor
-from .qr_generator import QRCodeService
+from app.config import settings
+from app.infrastructure.db.postgres.schemas import Tariffs, Transactions, Users
+from app.infrastructure.db.postgres.database import db_helper
+from app.infrastructure.db.redis.redis import redis_client
+from app.application.models import CreatePaymentResponse
+from app.application.services.payment_processor import PaymentProcessor
+from app.application.services.qr_generator import QRCodeService
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +24,10 @@ class PaymentManager:
         self.payment_processor = payment_processor
         self.qr_service = QRCodeService()
     
-    async def create_payment(self, user_id: int, tariff_name: str):
+    async def create_payment(self, user_id: str, tariff_name: str):
         async with db_helper.transaction() as session:
             # Генерируем payment_id
-            payment_id = str(uuid.uuid4())
+            payment_id = uuid.uuid4()
             
             # Убеждаемся, что пользователь существует в PostgreSQL
             await self._ensure_user_exists_internal(user_id, session)
@@ -63,7 +64,7 @@ class PaymentManager:
                 qr_data=f"pay:{payment_id}"
             )
     
-    async def get_payment_info(self, payment_id: str) -> Optional[Dict[str, Any]]:
+    async def get_payment_info(self, payment_id: UUID) -> Optional[Dict[str, Any]]:
         """Получает информацию о платеже."""
         try:
             redis_key = f"payment:{payment_id}"
@@ -78,7 +79,7 @@ class PaymentManager:
             logger.error(f"Error getting payment info for {payment_id}: {e}")
             return None
     
-    async def update_payment_from_address(self, payment_id: str, from_address: str) -> bool:
+    async def update_payment_from_address(self, payment_id: UUID, from_address: str) -> bool:
         """Обновляет адрес отправителя в платеже."""
         try:
             payment_data = await self.get_payment_info(payment_id)
@@ -102,7 +103,7 @@ class PaymentManager:
             logger.error(f"Error updating payment {payment_id} with from_address: {e}")
             return False
     
-    async def check_and_process_payment(self, payment_id: str) -> str:
+    async def check_and_process_payment(self, payment_id: UUID) -> str:
         """Проверяет и обрабатывает платеж."""
         try:
             payment_data = await self.get_payment_info(payment_id)
@@ -127,7 +128,7 @@ class PaymentManager:
             logger.error(f"Error checking payment {payment_id}: {e}")
             return "not_found"
     
-    async def _mark_payment_completed(self, payment_id: str) -> None:
+    async def _mark_payment_completed(self, payment_id: UUID) -> None:
         """Отмечает платеж как завершенный."""
         try:
             payment_data = await self.get_payment_info(payment_id)
@@ -147,7 +148,7 @@ class PaymentManager:
         except Exception as e:
             logger.error(f"Error marking payment {payment_id} as completed: {e}")
     
-    async def _ensure_user_exists_internal(self, user_id: int, session) -> None:
+    async def _ensure_user_exists_internal(self, user_id: str, session) -> None:
         """Убеждается, что пользователь существует в PostgreSQL"""
         existing_user = await self._get_user_internal(user_id, session)
         if not existing_user:
@@ -161,7 +162,7 @@ class PaymentManager:
         result = await session.execute(query)
         return result.scalar_one_or_none()
     
-    async def _get_user_internal(self, user_id: int, session):
+    async def _get_user_internal(self, user_id: str, session):
         """Получает пользователя по ID."""
         query = select(Users).where(Users.user_id == user_id)
         result = await session.execute(query)

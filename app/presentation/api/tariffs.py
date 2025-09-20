@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
-from ..application.container import ServicesContainer
-from ..models import TariffCreate, TariffRead, PatchTariffModel
+from app.application.container import ServicesContainer
+from app.presentation.api.models import TariffCreate, TariffRead, TariffUpdateRequest, TariffUpdateResponse, TariffDeleteResponse
 
 router = APIRouter(prefix="/tariffs", tags=["tariffs"])
 
@@ -26,12 +26,19 @@ async def get_tariff_by_name(name: str):
         raise HTTPException(status_code=404, detail="Тариф не найден")
     return tariff
 
-@router.patch("/{name}", response_model=TariffRead)
-async def update_tariff(name: str, tariff_data: PatchTariffModel):
+@router.patch("/{name}", response_model=TariffUpdateResponse)
+async def update_tariff(name: str, tariff_data: TariffUpdateRequest):
     tariffs_service = container.get_tariffs_service()
-    return await tariffs_service.update(name, tariff_data)
+    updated_tariff = await tariffs_service.update(name, tariff_data)
+    return TariffUpdateResponse(
+        tariff_id=updated_tariff.tariff_id,
+        name=updated_tariff.name,
+        price=updated_tariff.price,
+        features=updated_tariff.features
+    )
 
-@router.delete("/{name}")
+@router.delete("/{name}", response_model=TariffDeleteResponse)
 async def delete_tariffs_by_name(name: str):
     tariffs_service = container.get_tariffs_service()
-    return await tariffs_service.delete_by_name(name)
+    result = await tariffs_service.delete_by_name(name)
+    return TariffDeleteResponse(detail=result)

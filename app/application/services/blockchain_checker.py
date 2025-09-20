@@ -1,6 +1,7 @@
 import hashlib
 import logging
 from typing import Any, Dict, Optional
+from uuid import UUID
 
 from web3 import Web3
 from web3.exceptions import InvalidAddress, TransactionNotFound
@@ -39,7 +40,7 @@ class BlockchainChecker:
         
         logger.info(f"Blockchain checker initialized for wallet: {self.wallet_address}")
     
-    async def check_transaction_confirmation(self, payment_id: str, **kwargs):
+    async def check_transaction_confirmation(self, payment_id: UUID, **kwargs):
         # Конвертируем payment_id в bytes32
         payment_hash = hashlib.sha256(payment_id.encode()).digest()[:32]
         
@@ -68,7 +69,7 @@ class BlockchainChecker:
         tx: Dict[str, Any], 
         expected_amount: int, 
         from_address: Optional[str],
-        payment_id: str
+        payment_id: UUID
     ) -> bool:
         """
         Валидирует транзакцию по заданным критериям.
@@ -108,7 +109,7 @@ class BlockchainChecker:
             logger.error(f"Error validating transaction {tx.hash.hex()}: {e}")
             return False
     
-    async def get_transaction_details(self, tx_hash: str) -> Optional[Dict[str, Any]]:
+    async def get_transaction_details(self, tx_hash: UUID) -> Optional[Dict[str, Any]]:
         """ Получает детали транзакции по хешу. """
         try:
             tx = self.w3.eth.get_transaction(tx_hash)

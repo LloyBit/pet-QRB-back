@@ -1,13 +1,11 @@
 from app.config import settings
 
-from .blockchain_checker import BlockchainChecker
-from .payment_api import PaymentAPIService
-from .payment_manager import PaymentManager
-from .payment_processor import PaymentProcessor
-from .qr_generator import QRCodeService
-from .tariffs import TariffsService
-from .users import UsersService
-from ..infrastructure.db.postgres.database import db_helper
+from app.application.services.blockchain_checker import BlockchainChecker
+from app.application.services.payment_manager import PaymentManager
+from app.application.services.payment_processor import PaymentProcessor
+from app.application.services.qr_generator import QRCodeService
+from app.application.services.tariffs import TariffsService
+from app.application.services.users import UsersService
 
 class ServicesContainer:
     """Контейнер для сервисов с зависимостями и синглтонами."""
@@ -29,18 +27,15 @@ class ServicesContainer:
             payment_processor=self.payment_processor
         )
         
-        # API сервисы
-        self.payment_api_service = PaymentAPIService(
-            payment_manager=self.payment_manager,
-            payment_processor=self.payment_processor
-        )
-        
         self.users_service = UsersService()
         self.tariffs_service = TariffsService()
     
     # Геттеры для сервисов
-    def get_payment_api_service(self) -> PaymentAPIService:
-        return self.payment_api_service
+    def get_payment_manager(self) -> PaymentManager:
+        return self.payment_manager
+    
+    def get_payment_processor(self) -> PaymentProcessor:
+        return self.payment_processor
     
     def get_users_service(self) -> UsersService:
         return self.users_service

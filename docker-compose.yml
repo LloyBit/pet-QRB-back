@@ -6,6 +6,7 @@ services:
     env_file:
       - .env
     environment:
+      - DB_URL=postgresql://user:user_password@postgres:5432/postgres
       - POSTGRES_USER=user
       - POSTGRES_PASSWORD=user_password
       - POSTGRES_DB=postgres

@@ -2,6 +2,7 @@ from datetime import datetime
 import hashlib
 from io import BytesIO
 import logging
+from uuid import UUID
 import uuid
 
 import qrcode
@@ -19,7 +20,7 @@ class QRCodeService:
         self.chain_id = settings.chain_id
         self.gas_limit = None
         
-    def _build_calldata(self, payment_id: str) -> str:
+    def _build_calldata(self, payment_id: UUID) -> str:
         """
         Строит calldata для вызова функции payForTariff(bytes32 paymentId).
         Функция payForTariff имеет сигнатуру: payForTariff(bytes32)
@@ -75,7 +76,7 @@ class QRCodeService:
         bio.seek(0)
         return bio
 
-    async def build_qr_image(self, tariff_name: str, user_id: int, gas_limit: int = 100000) -> BytesIO:
+    async def build_qr_image(self, tariff_name: str, user_id: str, gas_limit: int = 100000) -> BytesIO:
         """ 
         Генерирует bytesIO QR-код для платежа.
         
@@ -91,7 +92,7 @@ class QRCodeService:
                 raise ValueError(f"Tariff '{tariff_name}' not found")
             
             # Генерируем payment_id
-            payment_id = str(uuid.uuid4())
+            payment_id = uuid.uuid4()
             
             # Создаем запись транзакции в БД
             transaction = Transactions(
@@ -112,7 +113,7 @@ class QRCodeService:
             logger.info(f"QR Data: {data}")
             return self._generate_qr_code_image(data)
     
-    async def _ensure_user_exists_internal(self, user_id: int, session) -> None:
+    async def _ensure_user_exists_internal(self, user_id: str, session) -> None:
         """Убеждается, что пользователь существует в PostgreSQL"""
         query = select(Users).where(Users.user_id == user_id)
         result = await session.execute(query)

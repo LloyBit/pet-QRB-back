@@ -5,15 +5,15 @@ from fastapi import FastAPI
 import uvicorn
 from sqlalchemy import text
 
-from app.api import router as all_routers
+from app.presentation.api import router as all_routers
 from app.config import settings
 from app.infrastructure.db.postgres.database import db_helper
 from app.infrastructure.db.redis.redis import redis_client
 from app.infrastructure.kafka.client import KafkaClient
 from app.infrastructure.kafka.consumer import KafkaConsumerService
 from app.infrastructure.kafka.producer import KafkaProducerService
-from app.infrastructure.logger_config import setup_logging
-from app.infrastructure.middleware import ExceptionMiddleware, LoggingMiddleware
+from app.presentation.middleware.logger_config import setup_logging
+from app.presentation.middleware import ExceptionMiddleware, LoggingMiddleware
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

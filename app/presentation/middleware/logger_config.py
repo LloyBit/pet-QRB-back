@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from pathlib import Path
 
 from app.config import settings
 
@@ -31,13 +32,26 @@ def setup_logging():
     
     # Создаем обработчик для файла (все логи)
     try:
-        # Определяем путь к корню проекта (рядом с папкой app)
-        project_root = os.path.dirname(os.path.abspath(__file__))
-        root_dir = os.path.abspath(os.path.join(project_root, "..", ".."))
-        log_file_path = os.path.join(root_dir, "logs", "app.log")
+        # Более надежный способ определения корня проекта
+        # Ищем папку с main.py или pyproject.toml
+        current_file = Path(__file__).resolve()
+        project_root = None
+        
+        # Поднимаемся по директориям вверх, пока не найдем корень проекта
+        for parent in current_file.parents:
+            if (parent / "main.py").exists() or (parent / "pyproject.toml").exists():
+                project_root = parent
+                break
+        
+        if project_root is None:
+            # Fallback: используем старый способ
+            project_root = current_file.parent.parent.parent
+        
+        logs_dir = project_root / "logs"
+        log_file_path = logs_dir / "app.log"
 
         # Создаем директорию для логов если её нет
-        os.makedirs(os.path.join(root_dir, "logs"), exist_ok=True)
+        logs_dir.mkdir(parents=True, exist_ok=True)
 
         file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
         file_handler.setLevel(logging.DEBUG)  # Все логи в файл
@@ -46,9 +60,12 @@ def setup_logging():
         root_logger.addHandler(file_handler)
         
         print(f"✅ Log file created at: {log_file_path}")
+        print(f"📁 Project root detected as: {project_root}")
         
     except Exception as e:
         print(f"❌ Warning: Could not create file handler: {e}")
+        # Если не можем создать файловый логгер, продолжаем только с консольным
+        print("📝 Continuing with console logging only")
     
     # Настраиваем логирование для сторонних библиотек
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)

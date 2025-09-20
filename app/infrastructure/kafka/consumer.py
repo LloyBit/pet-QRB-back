@@ -2,7 +2,7 @@
 import json
 from typing import Any, Dict
 
-from .client import KafkaClient
+from app.infrastructure.kafka.client import KafkaClient
 
 class KafkaConsumerService:
     def __init__(self, client: KafkaClient):

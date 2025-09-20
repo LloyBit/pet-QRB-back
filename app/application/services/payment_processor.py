@@ -1,13 +1,13 @@
-from datetime import datetime, timezone
+from datetime import datetime
 import logging
-
+from uuid import UUID
 from dateutil.relativedelta import relativedelta
 from sqlalchemy import select
 
-from ..infrastructure.db.postgres.schemas import Transactions, Users
-from ..infrastructure.db.postgres.database import db_helper
-from ..infrastructure.db.redis.redis import redis_client
-from .blockchain_checker import BlockchainChecker
+from app.infrastructure.db.postgres.schemas import Transactions, Users
+from app.infrastructure.db.postgres.database import db_helper
+from app.infrastructure.db.redis.redis import redis_client
+from app.application.services.blockchain_checker import BlockchainChecker
 
 logger = logging.getLogger(__name__)
 
@@ -17,11 +17,8 @@ class PaymentProcessor:
     def __init__(self, blockchain_checker: BlockchainChecker = None):
         self.migration_lock_timeout = 30  # секунды
         self.blockchain_checker = blockchain_checker
-        
-        if not self.blockchain_checker:
-            logger.warning("BlockchainChecker not provided - using mock implementation")
     
-    async def process_confirmed_payment(self, payment_id: str):
+    async def process_confirmed_payment(self, payment_id: UUID):
         async with db_helper.transaction() as session:
             # Обновляем статус в PostgreSQL
             query = select(Transactions).where(Transactions.payment_id == payment_id)
@@ -42,7 +39,7 @@ class PaymentProcessor:
             
             return False
     
-    async def check_and_process_payment(self, payment_id: str, user_id: int, tariff_id: int, amount: int) -> str:
+    async def check_and_process_payment(self, payment_id: UUID, user_id: str, tariff_id: UUID, amount: int) -> str:
         """Проверяет и обрабатывает платеж."""
         async with db_helper.transaction() as session:
             # Проверяем блокчейн
@@ -61,7 +58,7 @@ class PaymentProcessor:
             else:
                 return "In_progress"
     
-    async def get_payment_status_safe(self, payment_id: str) -> str:
+    async def get_payment_status_safe(self, payment_id: UUID) -> str:
         """Безопасная проверка статуса платежа с учетом миграции."""
         async with db_helper.session_only() as session:
             # Сначала проверяем PostgreSQL
@@ -84,7 +81,7 @@ class PaymentProcessor:
             return "not_found"
     
     # Остальные приватные методы остаются с сессиями как параметрами
-    async def _check_blockchain_transaction(self, payment_id: str, expected_amount: int) -> bool:
+    async def _check_blockchain_transaction(self, payment_id: UUID, expected_amount: int) -> bool:
         """
         Проверяет подтверждение транзакции в блокчейне.
         
@@ -143,9 +140,9 @@ class PaymentProcessor:
             return False
     
     async def _migrate_payment_to_postgres(self, 
-        payment_id: str, 
-        user_id: int, 
-        tariff_id: int, 
+        payment_id: UUID, 
+        user_id: str, 
+        tariff_id: UUID, 
         amount: int,
         session
     ) -> bool:
@@ -187,7 +184,7 @@ class PaymentProcessor:
             await redis_client.delete(migration_key)
             return False
     
-    async def _get_transaction(self, payment_id: str, session):
+    async def _get_transaction(self, payment_id: UUID, session):
         """Получает транзакцию из PostgreSQL."""
         query = select(Transactions).where(Transactions.payment_id == payment_id)
         result = await session.execute(query)
@@ -195,9 +192,9 @@ class PaymentProcessor:
     
     async def _create_transaction(
         self, 
-        payment_id: str, 
-        user_id: int, 
-        tariff_id: int, 
+        payment_id: UUID, 
+        user_id: str, 
+        tariff_id: UUID, 
         amount: int,
         session
     ) -> bool:
@@ -220,7 +217,7 @@ class PaymentProcessor:
             logger.error(f"Error creating transaction {payment_id}: {e}")
             return False
     
-    async def _update_user_tariff(self, user_id: int, tariff_id: int, session):
+    async def _update_user_tariff(self, user_id: str, tariff_id: UUID, session):
         """Обновляет тариф пользователя."""
         try:
             # Получаем пользователя

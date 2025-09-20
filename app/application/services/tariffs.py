@@ -1,9 +1,9 @@
 from sqlalchemy import delete, select
 from fastapi import HTTPException
 
-from ..infrastructure.db.postgres.schemas import Tariffs
-from ..infrastructure.db.postgres.database import db_helper
-from ..models import PatchTariffModel, TariffCreate
+from app.infrastructure.db.postgres.schemas import Tariffs
+from app.infrastructure.db.postgres.database import db_helper
+from app.application.models import PatchTariffModel, TariffCreate
 
 class TariffsService:
     '''Сервис для работы с тарифами.'''
