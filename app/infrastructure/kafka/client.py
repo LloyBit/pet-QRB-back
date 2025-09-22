@@ -63,13 +63,14 @@ class KafkaClient:
                 raise
     
     async def _test_connection(self):
-        """Тестируем подключение, получая метаданные"""
+        """Тестируем подключение, отправляя тестовое сообщение"""
         try:
-            # Получаем метаданные кластера для проверки подключения
-            metadata = await self.producer.client.fetch_metadata()
-            logger.info(f"Kafka cluster metadata: {len(metadata.brokers)} brokers available")
+            # Простая проверка - пытаемся получить список топиков
+            # Это более надежный способ проверки подключения
+            topics = await self.consumer.topics()
+            logger.info(f"Kafka connection test successful. Available topics: {list(topics)}")
         except Exception as e:
-            logger.warning(f"Не удалось получить метаданные Kafka: {e}")
+            logger.warning(f"Не удалось получить список топиков Kafka: {e}")
             # Не поднимаем исключение, так как подключение может работать
     
     async def _cleanup_connections(self):

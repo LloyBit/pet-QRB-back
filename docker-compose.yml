@@ -6,6 +6,7 @@ services:
     env_file:
       - .env
     environment:
+      - KAFKA_URL=kafka:9092
       - DB_URL=postgresql://user:user_password@postgres:5432/postgres
       - POSTGRES_USER=user
       - POSTGRES_PASSWORD=user_password
@@ -70,6 +71,8 @@ services:
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_LOG_DIRS: "/var/lib/kafka/data"
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
+      KAFKA_LOG4J_LOGGERS: "kafka.controller=INFO,kafka.producer.async.DefaultEventHandler=INFO,state.change.logger=INFO"
+      KAFKA_LOG4J_ROOT_LOGLEVEL: "INFO"
     ports:
       - "9092:9092"
     volumes:
