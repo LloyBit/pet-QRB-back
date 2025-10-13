@@ -1,236 +1,77 @@
 from datetime import datetime
+import json
 import logging
+import logging
+from typing import Optional
 from uuid import UUID
-from dateutil.relativedelta import relativedelta
-from sqlalchemy import select
+import uuid
+import hashlib
 
-from app.infrastructure.db.postgres.schemas import Transactions, Users
-from app.infrastructure.db.postgres.database import db_helper
-from app.infrastructure.db.redis.redis import redis_client
-from app.application.services.blockchain_checker import BlockchainChecker
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.infrastructure.db.postgres.database import AsyncDatabaseHelper
+from app.infrastructure.db.postgres.schemas import Transactions
+from app.infrastructure.db.postgres.schemas import Tariffs, Transactions
+from app.infrastructure.db.redis.repositories import MigrationRepository
 
 logger = logging.getLogger(__name__)
 
 class PaymentProcessor:
-    """Сервис для обработки платежей с мануальным опросом блокчейна."""
-    
-    def __init__(self, blockchain_checker: BlockchainChecker = None):
-        self.migration_lock_timeout = 30  # секунды
-        self.blockchain_checker = blockchain_checker
-    
-    async def process_confirmed_payment(self, payment_id: UUID):
-        async with db_helper.transaction() as session:
-            # Обновляем статус в PostgreSQL
+    def __init__(self, db_helper: AsyncDatabaseHelper):
+        self.db_helper = db_helper  
+
+    async def check_payment(self, payment_id: UUID) -> Optional[str]:
+        """Проверяет, есть ли платеж с данным UUID в БД и возвращает токен, если есть."""
+        async with self.db_helper.session_only() as session:
             query = select(Transactions).where(Transactions.payment_id == payment_id)
             result = await session.execute(query)
-            transaction = result.scalar_one_or_none()
-            
-            if transaction and transaction.status == "pending":
-                transaction.status = "confirmed"
-                transaction.confirmed_at = datetime.utcnow()
-                
-                # Обновляем тариф пользователя
-                await self._update_user_tariff(transaction.user_id, transaction.tariff_id, session)
-                
-                # Удаляем из Redis
-                await redis_client.delete(f"payment:{payment_id}")
-                
-                return True
-            
-            return False
-    
-    async def check_and_process_payment(self, payment_id: UUID, user_id: str, tariff_id: UUID, amount: int) -> str:
-        """Проверяет и обрабатывает платеж."""
-        async with db_helper.transaction() as session:
-            # Проверяем блокчейн
-            confirmed = await self._check_blockchain_transaction(payment_id, amount)
-            
-            if confirmed:
-                # Мигрируем в PostgreSQL
-                success = await self._migrate_payment_to_postgres(
-                    payment_id, user_id, tariff_id, amount, session
-                )
-                
-                if success:
-                    return "Accepted"
-                else:
-                    return "Error"
-            else:
-                return "In_progress"
-    
-    async def get_payment_status_safe(self, payment_id: UUID) -> str:
-        """Безопасная проверка статуса платежа с учетом миграции."""
-        async with db_helper.session_only() as session:
-            # Сначала проверяем PostgreSQL
-            transaction = await self._get_transaction(payment_id, session)
-            if transaction:
-                return "Accepted"
-            
-            # Проверяем флаг миграции
-            migration_key = f"migrating:{payment_id}"
-            is_migrating = await redis_client.get(migration_key)
-            if is_migrating:
-                return "In_progress"
-            
-            # Проверяем Redis
-            redis_key = f"payment:{payment_id}"
-            redis_data = await redis_client.get(redis_key)
-            if redis_data:
-                return "In_progress"
-            
-            return "not_found"
-    
-    # Остальные приватные методы остаются с сессиями как параметрами
-    async def _check_blockchain_transaction(self, payment_id: UUID, expected_amount: int) -> bool:
-        """
-        Проверяет подтверждение транзакции в блокчейне.
+            if result.scalar_one_or_none() is not None:
+                return PaymentProcessor._get_secret_token()
+        return None
         
-        Args:
-            payment_id: ID платежа
-            expected_amount: Ожидаемая сумма в wei
-            
-        Returns:
-            bool: True если транзакция подтверждена в блокчейне
-        """
-        if not self.blockchain_checker:
-            logger.warning(f"No blockchain checker available for payment {payment_id}")
-            return False
-        
-        try:
-            # Получаем данные из Redis для дополнительной валидации
-            redis_key = f"payment:{payment_id}"
-            redis_data = await redis_client.get(redis_key)
-            if not redis_data:
-                logger.warning(f"Payment {payment_id} not found in Redis during blockchain check")
-                return False
-            
-            # Парсим данные из Redis (новый формат JSON)
-            try:
-                import json
-                payment_data = json.loads(redis_data)
-                from_address = payment_data.get('from_address')
-                min_timestamp = payment_data.get('created_at')
-                if min_timestamp:
-                    # Конвертируем ISO timestamp в Unix timestamp
-                    from datetime import datetime
-                    dt = datetime.fromisoformat(min_timestamp.replace('Z', '+00:00'))
-                    min_timestamp = int(dt.timestamp())
-            except Exception as e:
-                logger.warning(f"Error parsing payment data for {payment_id}: {e}")
-                from_address = None
-                min_timestamp = None
-            
-            # Проверяем блокчейн
-            confirmed = await self.blockchain_checker.check_transaction_confirmation(
-                payment_id=payment_id,
-                expected_amount=expected_amount,
-                from_address=from_address,
-                min_timestamp=min_timestamp
-            )
-            
-            if confirmed:
-                logger.info(f"Blockchain confirmation received for payment {payment_id}")
-            else:
-                logger.info(f"Blockchain confirmation pending for payment {payment_id}")
-            
-            return confirmed
-            
-        except Exception as e:
-            logger.error(f"Error checking blockchain for payment {payment_id}: {e}")
-            return False
+    @staticmethod
+    def _get_secret_token() -> str:
+        """ Выдает секретный токен """
+        #TODO: Продумать логику токену
+        return "SUPER_SECRET_TOKEN"   
     
-    async def _migrate_payment_to_postgres(self, 
-        payment_id: UUID, 
-        user_id: str, 
-        tariff_id: UUID, 
-        amount: int,
-        session
-    ) -> bool:
-        """Атомарно мигрирует платеж из Redis в PostgreSQL."""
-        migration_key = f"migrating:{payment_id}"
+class TransactionService:
+    def __init__(self, db_helper, redis_repository: MigrationRepository):
+        self.db_helper = db_helper
+        self.redis_repository = redis_repository
+
+    async def create_transaction(self, user_id: int, tariff_name: str) -> str:
+        """Создаёт транзакцию в Redis и возвращает payment_hash"""
+        payment_id = str(uuid.uuid4())
         
-        try:
-            # Устанавливаем флаг миграции
-            await redis_client.set(migration_key, "1", ex=self.migration_lock_timeout)
-            
-            # Проверяем, не существует ли уже запись в PostgreSQL
-            existing_transaction = await self._get_transaction(payment_id, session)
-            if existing_transaction:
-                logger.info(f"Transaction {payment_id} already exists in PostgreSQL")
-                await redis_client.delete(migration_key)
-                return True
-            
-            # Создаем запись в PostgreSQL
-            success = await self._create_transaction(
-                payment_id, user_id, tariff_id, amount, session
-            )
-            
-            if success:
-                # Обновляем пользователя (привязываем тариф)
-                await self._update_user_tariff(user_id, tariff_id, session)
-                
-                # Удаляем данные из Redis только после успешной записи
-                redis_key = f"payment:{payment_id}"
-                await redis_client.delete(redis_key)
-                logger.info(f"Successfully migrated payment {payment_id} to PostgreSQL")
-            
-            # Удаляем флаг миграции
-            await redis_client.delete(migration_key)
-            return success
-            
-        except Exception as e:
-            logger.error(f"Error migrating payment {payment_id}: {e}")
-            # Удаляем флаг миграции в случае ошибки
-            await redis_client.delete(migration_key)
-            return False
-    
-    async def _get_transaction(self, payment_id: UUID, session):
-        """Получает транзакцию из PostgreSQL."""
-        query = select(Transactions).where(Transactions.payment_id == payment_id)
+        async with self.db_helper.session_only() as session:
+            tariff = await self._get_tariff_or_raise(tariff_name, session)
+        payment_hash = TransactionService.compute_payment_hash(payment_id, tariff.tariff_id, tariff.price)
+        data = {
+            "payment_id": payment_id,
+            "user_id": user_id,
+            "tariff_id": tariff.tariff_id,
+            "amount": tariff.price,
+            "status": "pending",
+            "created_at": datetime.utcnow().isoformat(),
+        }
+        key = f"transaction:{payment_hash}"
+        await self.redis_repository.create_transaction(key, json.dumps(data), expire_seconds=3600)
+        return payment_hash
+
+    # TODO: Искать тариф по UUID
+    async def _get_tariff_or_raise(self, tariff_name: str, session: AsyncSession) -> Tariffs:
+        """Возвращает тариф или бросает исключение, если не найден."""
+        query = select(Tariffs).where(Tariffs.name == tariff_name, Tariffs.is_active == True)
         result = await session.execute(query)
-        return result.scalar_one_or_none()
+        tariff = result.scalar_one_or_none()
+        if not tariff:
+            raise ValueError(f"Tariff '{tariff_name}' not found")
+        return tariff
     
-    async def _create_transaction(
-        self, 
-        payment_id: UUID, 
-        user_id: str, 
-        tariff_id: UUID, 
-        amount: int,
-        session
-    ) -> bool:
-        """Создает запись транзакции в PostgreSQL."""
-        try:
-            # Используем UUID как строку для payment_id
-            transaction = Transactions(
-                payment_id=payment_id,  # Теперь это строка UUID
-                user_id=user_id,
-                tariff_id=tariff_id,
-                amount=amount,
-                created_at=datetime.utcnow(),
-                expired_at=datetime.utcnow() + relativedelta(months=+1)
-            )
-            
-            session.add(transaction)
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error creating transaction {payment_id}: {e}")
-            return False
+    @staticmethod
+    def compute_payment_hash(payment_id: str, tariff_id: str, tariff_price: int) -> str:
+        data = f"{payment_id}{tariff_id}{tariff_price}"
+        return hashlib.sha256(data.encode()).hexdigest()
     
-    async def _update_user_tariff(self, user_id: str, tariff_id: UUID, session):
-        """Обновляет тариф пользователя."""
-        try:
-            # Получаем пользователя
-            query = select(Users).where(Users.user_id == user_id)
-            result = await session.execute(query)
-            user = result.scalar_one_or_none()
-            
-            if user:
-                # Обновляем тариф и срок действия
-                user.tariff_id = tariff_id
-                user.tariff_expires_at = datetime.utcnow() + relativedelta(months=+1)
-                logger.info(f"Updated user {user_id} tariff to {tariff_id}")
-            
-        except Exception as e:
-            logger.error(f"Error updating user {user_id} tariff: {e}")
-            raise

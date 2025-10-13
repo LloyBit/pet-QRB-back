@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -e
 
-# Create database
-python scripts/create_db.py
-
 # Run migrations
 echo "🔄 Running database migrations..."
 
@@ -17,4 +14,5 @@ else
   exit 1
 fi
 
-exec "$@"
+# Запуск приложения
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000

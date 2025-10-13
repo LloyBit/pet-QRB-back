@@ -1,33 +1,52 @@
 services:
   app:
     build: .
+    command: /app/scripts/start-main.sh
     ports:
       - "8000:8000"
     env_file:
       - .env
     environment:
-      - KAFKA_URL=kafka:9092
-      - DB_URL=postgresql://user:user_password@postgres:5432/postgres
-      - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=user_password
-      - POSTGRES_DB=postgres
+      - DB_URL=postgresql://postgres:admin@postgres:5432/qr_payment_db
+      - ADMIN_DB_URL=postgresql://postgres:admin@postgres:5432/postgres
+      - NETWORK_HTTP_RPC_URL=hardhat-node:8545
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
     volumes:
       - ./logs:/app/logs
+      - ./app/infrastructure/db/postgres/migrations/versions:/app/app/infrastructure/db/postgres/migrations/versions  
     restart: unless-stopped
     networks:
       - qrb-network
+
+  payment-poller:
+    build:
+      context: .
+    command: python /app/app/infrastructure/blockchain_listener.py
+    depends_on:
+      - redis
+      - postgres
+    env_file:
+      - .env
+    environment:
+      - DB_URL=postgresql://postgres:admin@postgres:5432/qr_payment_db
+      - ADMIN_DB_URL=postgresql://postgres:admin@postgres:5432/postgres
+    restart: unless-stopped
+    networks:
+      - qrb-network
+
 
   postgres:
     image: postgres:15-alpine
     env_file:
       - .env
+    environment:
+      - POSTGRES_USER=postgres  
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=qr_payment_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -36,7 +55,7 @@ services:
     networks:
       - qrb-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d ${POSTGRES_DB}"] # явное указание т.к. нет системного пользователя root
+      test: ["CMD-SHELL", "pg_isready -U postgres -d qr_payment_db"] # явное указание т.к. нет системного пользователя root
       interval: 10s
       timeout: 5s
       retries: 5
@@ -56,36 +75,6 @@ services:
       timeout: 5s
       retries: 5
 
-  kafka:
-    image: confluentinc/cp-kafka:latest
-    env_file:
-      - .env
-    environment:
-      KAFKA_KRAFT_MODE: 1
-      KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_BROKER_ID: 1
-      CLUSTER_ID: "4L6g3nShT-eMCtK--X86sw"
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
-      KAFKA_LOG4J_LOGGERS: "kafka.controller=INFO,kafka.producer.async.DefaultEventHandler=INFO,state.change.logger=INFO"
-      KAFKA_LOG4J_ROOT_LOGLEVEL: "INFO"
-    ports:
-      - "9092:9092"
-    volumes:
-      - kafka_data:/var/lib/kafka/data
-    restart: unless-stopped
-    networks:
-      - qrb-network
-    healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --list --bootstrap-server kafka:9092"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
 networks:
   qrb-network:
     external: true
@@ -93,4 +82,3 @@ networks:
 volumes:
   postgres_data:
   redis_data:
-  kafka_data:

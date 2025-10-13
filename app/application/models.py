@@ -31,7 +31,7 @@ class CreatePaymentResponse(BaseModel):
 
 class PaymentData(BaseModel):
     payment_id: UUID
-    user_id: str
+    user_id: int
     tariff_id: UUID
     amount: int
     status: PaymentStatus
@@ -46,7 +46,7 @@ class PaymentValidationResult(BaseModel):
 
 # Сервисные модели для пользователей
 class UserData(BaseModel):
-    user_id: str
+    user_id: int
     tariff_id: Optional[UUID] = None
     tariff_expires_at: Optional[datetime] = None
     status: UserStatus = UserStatus.ACTIVE
@@ -58,14 +58,15 @@ class UserOut(BaseModel):
     status: UserStatus = UserStatus.ACTIVE
 
 # Сервисные модели для тарифов
-class TariffData(BaseModel):
-    tariff_id: UUID
+
+class TariffCreate(BaseModel):
     name: str
     price: int
     features: str
-    is_active: bool
-    
-class TariffCreate(BaseModel):
+    is_active: bool = True
+
+class TariffData(BaseModel):
+    tariff_id: UUID
     name: str
     price: int
     features: str
@@ -76,6 +77,9 @@ class PatchTariffModel(BaseModel):
     price: Optional[int] = None
     features: Optional[str] = None
     is_active: Optional[bool] = None
+
+class TariffActivateQuery(BaseModel):
+    is_active: bool 
 
 # Сервисные модели для блокчейна
 class BlockchainTransaction(BaseModel):

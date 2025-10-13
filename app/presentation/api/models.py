@@ -1,62 +1,26 @@
 '''DTO для API'''
-from enum import Enum as PyEnum
 from typing import Optional
 from uuid import UUID
-from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-
-# ==================== ENUMS ====================
-
-class PaymentState(PyEnum):
-    """Состояния платежа"""
-    NOT_PAID = "not_paid"
-    PAID = "paid"
-    PENDING = "pending"
-
 
 # ==================== USER MODELS ====================
 
 class UserOut(BaseModel):
     """Модель для вывода информации о пользователе"""
-    user_id: str = Field(..., description="Уникальный идентификатор пользователя")
+    user_id: int = Field(..., description="Уникальный идентификатор пользователя")
     
     model_config = ConfigDict(from_attributes=True)
 
 
 class UserCreateRequest(BaseModel):
     """Модель для создания пользователя"""
-    user_id: str = Field(
+    user_id: int = Field(
         ..., 
-        min_length=1, 
-        max_length=255,
-        description="Уникальный идентификатор пользователя"
+        ge=1, 
+        le=9223372036854775807,
+        description="Telegram user ID"
     )
     
-    @field_validator('user_id')
-    @classmethod
-    def validate_user_id(cls, v):
-        if not v.strip():
-            raise ValueError('user_id не может быть пустым')
-        return v.strip()
-
-
-class UserUpdateRequest(BaseModel):
-    """Модель для обновления пользователя"""
-    user_id: Optional[str] = Field(
-        None, 
-        min_length=1, 
-        max_length=255,
-        description="Уникальный идентификатор пользователя"
-    )
-    
-    @field_validator('user_id')
-    @classmethod
-    def validate_user_id(cls, v):
-        if v is not None and not v.strip():
-            raise ValueError('user_id не может быть пустым')
-        return v.strip() if v else v
-
 
 class UserDeleteResponse(BaseModel):
     """Модель ответа при удалении пользователя"""
@@ -77,13 +41,14 @@ class TariffCreate(BaseModel):
         ..., 
         ge=0, 
         le=1000000,
-        description="Цена тарифа в копейках"
+        description="Цена тарифа в gwei"
     )
     features: str = Field(
         ..., 
         min_length=1,
         description="Описание возможностей тарифа"
     )
+    is_active: bool = True
     
     @field_validator('name')
     @classmethod
@@ -126,7 +91,7 @@ class TariffUpdateRequest(BaseModel):
         min_length=1,
         description="Описание возможностей тарифа"
     )
-    
+
     @field_validator('name')
     @classmethod
     def validate_name(cls, v):
@@ -142,6 +107,9 @@ class TariffUpdateRequest(BaseModel):
         return v.strip() if v else v
     
     model_config = ConfigDict(from_attributes=True)
+
+class TariffActivateQuery(BaseModel):
+    is_active: bool = Field(..., description="Флаг активности тарифа")
 
 
 class TariffUpdateResponse(BaseModel):
@@ -159,102 +127,19 @@ class TariffDeleteResponse(BaseModel):
 
 # ==================== PAYMENT MODELS ====================
 
-class CreatePaymentRequest(BaseModel):
-    """Модель для создания платежа"""
-    user_id: str = Field(
-        ..., 
-        min_length=1, 
-        max_length=255,
-        description="Уникальный идентификатор пользователя"
-    )
-    tariff_name: str = Field(
-        ..., 
-        min_length=1, 
-        max_length=255,
-        description="Название тарифа"
-    )
-    
-    @field_validator('user_id')
-    @classmethod
-    def validate_user_id(cls, v):
-        if not v.strip():
-            raise ValueError('user_id не может быть пустым')
-        return v.strip()
-    
-    @field_validator('tariff_name')
-    @classmethod
-    def validate_tariff_name(cls, v):
-        if not v.strip():
-            raise ValueError('tariff_name не может быть пустым')
-        return v.strip()
-
-
-class CreatePaymentResponse(BaseModel):
-    """Модель ответа при создании платежа"""
-    payment_id: UUID = Field(..., description="Уникальный идентификатор платежа")
-    amount: int = Field(..., ge=0, description="Сумма платежа в копейках")
-    tariff_name: str = Field(..., description="Название тарифа")
-    wallet_address: str = Field(..., description="Адрес кошелька для оплаты")
-    qr_data: str = Field(..., description="QR код для оплаты")
-
-
-class PaymentInfoResponse(BaseModel):
-    """Модель для получения информации о платеже"""
-    payment_id: UUID = Field(..., description="Уникальный идентификатор платежа")
-    user_id: str = Field(..., description="Уникальный идентификатор пользователя")
-    tariff_name: str = Field(..., description="Название тарифа")
-    amount: int = Field(..., ge=0, description="Сумма платежа в копейках")
-    wallet_address: str = Field(..., description="Адрес кошелька для оплаты")
-    from_address: Optional[str] = Field(None, description="Адрес отправителя")
-    status: str = Field(..., description="Статус платежа")
-    created_at: str = Field(..., description="Дата создания")
-    updated_at: str = Field(..., description="Дата обновления")
-
-
 class PaymentCheckResponse(BaseModel):
     """Модель ответа при проверке платежа"""
-    payment_id: UUID = Field(..., description="Уникальный идентификатор платежа")
-    status: str = Field(..., description="Статус платежа")
-    message: str = Field(..., description="Сообщение о результате проверки")
-
-
-class PaymentStatusResponse(BaseModel):
-    """Модель ответа при получении статуса платежа"""
-    payment_id: UUID = Field(..., description="Уникальный идентификатор платежа")
-    status: str = Field(..., description="Статус платежа")
-
-
-class UpdateFromAddressRequest(BaseModel):
-    """Модель для обновления адреса отправителя"""
-    from_address: str = Field(
-        ..., 
-        min_length=1,
-        description="Адрес отправителя"
-    )
-    
-    @field_validator('from_address')
-    @classmethod
-    def validate_from_address(cls, v):
-        if not v.strip():
-            raise ValueError('from_address не может быть пустым')
-        return v.strip()
-
-
-class UpdateFromAddressResponse(BaseModel):
-    """Модель ответа при обновлении адреса отправителя"""
-    status: str = Field(..., description="Статус операции")
-    message: str = Field(..., description="Сообщение о результате операции")
-
+    token: Optional[str] = Field(None, description="Токен доступа")
 
 # ==================== QR CODE MODELS ====================
 
 class QRCodeQuery(BaseModel):
     """Модель для запроса QR кода"""
-    user_id: str = Field(
+    user_id: int = Field(
         ..., 
-        min_length=1, 
-        max_length=255,
-        description="Уникальный идентификатор пользователя"
+        ge=1,  
+        le=9223372036854775807,
+        description="Telegram user ID"
     )
     tariff_name: str = Field(
         ..., 
@@ -263,26 +148,9 @@ class QRCodeQuery(BaseModel):
         description="Название тарифа"
     )
     
-    @field_validator('user_id')
-    @classmethod
-    def validate_user_id(cls, v):
-        if not v.strip():
-            raise ValueError('user_id не может быть пустым')
-        return v.strip()
-    
     @field_validator('tariff_name')
     @classmethod
     def validate_tariff_name(cls, v):
         if not v.strip():
             raise ValueError('tariff_name не может быть пустым')
         return v.strip()
-
-
-# ==================== WEBHOOK MODELS ====================
-
-class PaymentConfirmationWebhook(BaseModel):
-    """Модель webhook для подтверждения платежа"""
-    payment_id: UUID = Field(..., description="Уникальный идентификатор платежа")
-    user_id: str = Field(..., description="Уникальный идентификатор пользователя")
-    tariff_id: UUID = Field(..., description="Уникальный идентификатор тарифа")
-    amount: int = Field(..., ge=0, description="Сумма платежа в копейках")

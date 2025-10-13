@@ -1,16 +1,17 @@
 """ORM схемы для Postgres"""
 from datetime import datetime
+from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, UUID
-from sqlalchemy.orm import relationship 
+from sqlalchemy.orm import relationship
 
-from app.infrastructure.db.postgres.database import db_helper
+from app.infrastructure.db.postgres.migration import Base
 
-class Users(db_helper.Base):
+class Users(Base):
     __tablename__ = 'users'
 
-    user_id = Column(String, primary_key=True, index=True) 
+    user_id = Column(Integer, primary_key=True, default=uuid4, index=True) 
     tariff_id = Column(ForeignKey("tariffs.tariff_id"), nullable=True)
     tariff_expires_at = Column(DateTime, nullable=True)
 
@@ -18,10 +19,10 @@ class Users(db_helper.Base):
     tariff = relationship("Tariffs", back_populates="users")
     transactions = relationship("Transactions", back_populates="user")
 
-class Tariffs(db_helper.Base):
+class Tariffs(Base):
     __tablename__ = 'tariffs'
 
-    tariff_id = Column(UUID, primary_key=True, index=True) 
+    tariff_id = Column(UUID, primary_key=True, default=uuid4, index=True) 
     name = Column(String, unique=True, nullable=False)
     price = Column(Integer, nullable=False)
     features = Column(String, nullable=False)
@@ -32,10 +33,10 @@ class Tariffs(db_helper.Base):
     users = relationship("Users", back_populates="tariff")
     transactions = relationship("Transactions", back_populates="tariff")
 
-class Transactions(db_helper.Base):
+class Transactions(Base):
     __tablename__ = 'transactions'
 
-    payment_id = Column(UUID, primary_key=True, index=True)
+    payment_id = Column(UUID, primary_key=True, default=uuid4, index=True)
     user_id = Column(ForeignKey("users.user_id"), nullable=False)
     tariff_id = Column(ForeignKey("tariffs.tariff_id"), nullable=False)
     amount = Column(Integer, nullable=False)

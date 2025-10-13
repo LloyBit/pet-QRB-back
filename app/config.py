@@ -6,17 +6,15 @@ class Settings(BaseSettings):
     db_name: str
     db_url: str 
     admin_db_url: str  
-    redis_url: str
-    
-    # Kafka settings
-    kafka_url: str
+    redis_url_main: str
+    redis_url_celery: str
     
     # Blockchain settings
     admin_wallet_address: str 
-    network_rpc_url: str
+    network_http_rpc_url: str
+    network_ws_rpc_url: str
     blockchain_confirmations: int 
     chain_id: int
-    
     
     # Logging settings
     debug: bool = False
@@ -30,4 +28,3 @@ class Settings(BaseSettings):
         extra = "ignore"  
 
 settings = Settings()
-

@@ -117,7 +117,7 @@ docker-compose up --build
 | `ADMIN_DB_URL` | URL админской БД | `postgresql://user:pass@localhost:5432/postgres` |
 | `REDIS_URL` | URL Redis | `redis://localhost:6379` |
 | `ADMIN_WALLET_ADDRESS` | Адрес кошелька администратора | `0x1234...` |
-| `NETWORK_RPC_URL` | RPC URL блокчейн-сети | `http://localhost:8545` |
+| `NETWORK_HTTP_RPC_URL` | RPC URL блокчейн-сети | `http://localhost:8545` |
 | `BLOCKCHAIN_CONFIRMATIONS` | Количество подтверждений | `3` |
 
 ## Структура проекта

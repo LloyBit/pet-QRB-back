@@ -1,66 +1,53 @@
-import redis.exceptions
 from sqlalchemy import select
-
+import logging
 from app.infrastructure.db.postgres.schemas import Users
-from app.infrastructure.db.postgres.database import db_helper
-from app.infrastructure.db.redis.redis import redis_client
-from app.application.models import PaymentState, UserOut
+from app.infrastructure.db.postgres.database import AsyncDatabaseHelper
+from app.application.models import UserOut
 
+logger = logging.getLogger(__name__)
 
+# TODO: Рефактор класса по принципам SOLID
 class UsersService:
     '''Сервис для работы с пользователями.'''
-    async def init_user(self, user_id: str):
-        """Инициализация пользователя в Redis и PostgreSQL"""
-        async with db_helper.transaction() as session:
-            try:
-                # Проверяем, существует ли пользователь в PostgreSQL
-                existing_user = await self._get_user_internal(session, user_id)
-                if not existing_user:
-                    # Создаем пользователя в PostgreSQL
-                    user = Users(user_id=user_id)
-                    session.add(user)
-                    # Коммит произойдет автоматически в контекстном менеджере
-                
-                # Инициализируем пользователя в Redis
-                await redis_client.hset(
-                    f"user:{user_id}",
-                    mapping={
-                        "tariff_id": "basic",
-                        "payment_state": PaymentState.NOT_PAID.value,
-                    },
-                )
-            except redis.exceptions.ConnectionError:
-                print(f"Warning: Redis not available, skipping user {user_id} initialization")
-
-            return {
-                "user_id": user_id,
-                "tariff": "basic",
-                "payment_state": PaymentState.NOT_PAID,
-            }
-
-    async def ensure_user_exists(self, user_id: str) -> bool:
+    def __init__(self, db_helper: AsyncDatabaseHelper):
+        self.db_helper = db_helper
+    
+    async def ensure_user_exists(self, user_id: int) -> bool:
         """Убеждается, что пользователь существует в PostgreSQL"""
-        async with db_helper.transaction() as session:
+        async with self.db_helper.transaction() as session:
             existing_user = await self._get_user_internal(session, user_id)
             if not existing_user:
                 user = Users(user_id=user_id)
                 session.add(user)
                 return True
             return True
+    
+    async def init_user(self, user_id: int):
+        """Инициализация пользователя в Redis и PostgreSQL"""
+        async with self.db_helper.transaction() as session:
+            
+            # Проверяем, существует ли пользователь в PostgreSQL
+            existing_user = await self._get_user_internal(session, user_id)
+            if not existing_user:
+                # Создаем пользователя в PostgreSQL
+                user = Users(user_id=user_id)
+                session.add(user)
 
-    async def get_user(self, user_id: str):
+            return {
+                "user_id": user_id,
+                "tariff_id": None,
+                "tariff_expires_at": None
+                
+            }
+
+    async def get_user(self, user_id: int):
         """Получение пользователя из Postgres"""
-        async with db_helper.session_only() as session:
+        async with self.db_helper.session_only() as session:
             return await self._get_user_internal(session, user_id)
 
-    async def _get_user_internal(self, session, user_id: str):
-        """Внутренний метод для получения пользователя"""
-        result = await session.execute(select(Users).where(Users.user_id == user_id))
-        return result.scalar_one_or_none()
-
-    async def change_user(self, user_id: str, user_data: UserOut):
+    async def change_user(self, user_id: int, user_data: UserOut):
         """Изменение данных пользователя"""
-        async with db_helper.transaction() as session:
+        async with self.db_helper.transaction() as session:
             result = await session.execute(select(Users).where(Users.user_id == user_id))
             user = result.scalar_one_or_none()
             if not user:
@@ -73,9 +60,9 @@ class UsersService:
             session.add(user)
             return user
 
-    async def delete_user(self, user_id: str):
+    async def delete_user(self, user_id: int):
         """Удаление пользователя"""
-        async with db_helper.transaction() as session:
+        async with self.db_helper.transaction() as session:
             result = await session.execute(select(Users).where(Users.user_id == user_id))
             user = result.scalar_one_or_none()
             if not user:
@@ -83,3 +70,8 @@ class UsersService:
 
             await session.delete(user)
             return True
+        
+    async def _get_user_internal(self, session, user_id: int):
+        """Внутренний метод для получения пользователя"""
+        result = await session.execute(select(Users).where(Users.user_id == user_id))
+        return result.scalar_one_or_none()    
