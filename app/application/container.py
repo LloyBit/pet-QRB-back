@@ -1,54 +1,64 @@
+from app.application.services.blockchain_listener import PaymentPoller
 from app.application.services.payment_processor import PaymentProcessor, TransactionService
 from app.application.services.qr_generator import QRCodeService
 from app.application.services.tariffs import TariffsService
-from app.application.services.users import UsersService
-from app.infrastructure.db.postgres.database import AsyncDatabaseHelper
-from app.infrastructure.db.redis.repositories import MigrationRepository
+from app.infrastructure.container import InfrastructureContainer
+from app.config import Settings
 
 class ServicesContainer:
     """ Контейнер для сервисов с зависимостями, синглтонами. Ленивая инициализация """
-    def __init__(self, db_helper: AsyncDatabaseHelper, redis_repository: MigrationRepository):
-        self.db_helper = db_helper
-        self.redis_repository = redis_repository
+    def __init__(self, settings: Settings, infra: InfrastructureContainer):
+        self._settings = settings
+        self._infra = infra
         self._qr_service = None
         self._payment_processor = None
-        self._users_service = None
         self._tariffs_service = None
-    # Синглтоны
-    
-    def get_qr_service(self) -> QRCodeService:
+        self._transaction_service = None
+        self._blockchain_listener = None
+        
+    @property
+    def qr_service(self) -> QRCodeService:
         if self._qr_service is None:
             self._qr_service = QRCodeService(
-                db_helper=self.db_helper, 
-                redis_repository = self.redis_repository, 
-                transaction_service=self.get_transaction_service()
-                )
+                settings = self._settings,
+                transaction_service=self.transaction_service,
+                blockchain_helper=self._infra.blockchain_helper
+            )
         return self._qr_service
 
-    def get_payment_processor(self) -> PaymentProcessor:
+    @property
+    def payment_processor(self) -> PaymentProcessor:
         if self._payment_processor is None:
             self._payment_processor = PaymentProcessor(
-                db_helper=self.db_helper
+                transactions_pg=self._infra.transactions_pg
             )
         return self._payment_processor
-    
-    def get_users_service(self) -> UsersService:
-        if self._users_service is None:
-            self._users_service = UsersService(db_helper=self.db_helper)
-        return self._users_service
-    
-    def get_tariffs_service(self) -> TariffsService:
+
+    @property
+    def tariffs_service(self) -> TariffsService:
         if self._tariffs_service is None:
-            self._tariffs_service = TariffsService(db_helper=self.db_helper)
+            self._tariffs_service = TariffsService(
+                tariffs_repo=self._infra.tariffs_pg
+            )
         return self._tariffs_service
-    
-    def get_transaction_service(self) -> TransactionService:
+
+    @property
+    def transaction_service(self) -> TransactionService:
         if self._transaction_service is None:
             self._transaction_service = TransactionService(
-                db_helper=self.db_helper,
-                redis_repository=self.redis_repository
+                redis_repository=self._infra.transactions_redis,
+                transactions_pg=self._infra.transactions_pg
             )
         return self._transaction_service
 
-
-
+    @property
+    def blockchain_listener(self) -> PaymentPoller:
+        if self._blockchain_listener is None:
+            self._blockchain_listener = PaymentPoller(
+                settings=self._settings,
+                redis_repository=self._infra.transactions_redis,
+                transactions_pg=self._infra.transactions_pg,
+                blockchain_helper=self._infra.blockchain_helper,
+                transaction_service=self.transaction_service
+            )
+        return self._blockchain_listener

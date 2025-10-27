@@ -9,7 +9,6 @@ services:
     environment:
       - DB_URL=postgresql://postgres:admin@postgres:5432/qr_payment_db
       - ADMIN_DB_URL=postgresql://postgres:admin@postgres:5432/postgres
-      - NETWORK_HTTP_RPC_URL=hardhat-node:8545
     depends_on:
       postgres:
         condition: service_healthy
@@ -18,6 +17,12 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./app/infrastructure/db/postgres/migrations/versions:/app/app/infrastructure/db/postgres/migrations/versions  
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+    #   interval: 30s
+    #   timeout: 30s
+    #   retries: 3
+    #   start_period: 5s
     restart: unless-stopped
     networks:
       - qrb-network
@@ -25,7 +30,7 @@ services:
   payment-poller:
     build:
       context: .
-    command: python /app/app/infrastructure/blockchain_listener.py
+    command: /app/scripts/start-poller.sh
     depends_on:
       - redis
       - postgres

@@ -1,21 +1,16 @@
-from contextlib import asynccontextmanager
-from contextlib import contextmanager
-import logging
+from contextlib import asynccontextmanager, contextmanager
 from typing import AsyncGenerator
 
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-from app.config import settings
 
 class AsyncDatabaseHelper:
     """Асинхронный хелпер для работы с БД и управлением сессиями."""
 
-    def __init__(self, database_url: str | None = None):
-        self.database_url = (database_url or settings.db_url).replace(
-            "postgresql://", "postgresql+asyncpg://"
-        )
+    def __init__(self, database_url: str):
+        self.database_url = database_url.replace("postgresql://", "postgresql+asyncpg://")
 
         self.engine = None
         self.async_session_factory = None
@@ -69,12 +64,11 @@ class AsyncDatabaseHelper:
             self.engine = None
             self.async_session_factory = None
 
-
 class SyncDatabaseHelper:
     """Синхронный хелпер для работы с БД и управлением сессиями (для Celery)."""
 
-    def __init__(self, database_url: str | None = None):
-        self.database_url = database_url or settings.db_url
+    def __init__(self, database_url: str):
+        self.database_url = database_url 
         self.engine = None
         self.SessionLocal = None
         self.Base = declarative_base()

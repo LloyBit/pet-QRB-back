@@ -1,33 +1,27 @@
 from datetime import datetime
+import hashlib
 import json
-import logging
 import logging
 from typing import Optional
 from uuid import UUID
 import uuid
-import hashlib
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.infrastructure.db.postgres.database import AsyncDatabaseHelper
-from app.infrastructure.db.postgres.schemas import Transactions
-from app.infrastructure.db.postgres.schemas import Tariffs, Transactions
-from app.infrastructure.db.redis.repositories import MigrationRepository
+from app.application.models import TariffData, TransactionData
+from app.infrastructure.db.redis.repositories import TransactionsRepository as TransactionsRepositoryRedis
+from app.infrastructure.db.postgres.repositories.transactions import TransactionsRepository as TransactionsRepositoryPostgres
 
 logger = logging.getLogger(__name__)
 
 class PaymentProcessor:
-    def __init__(self, db_helper: AsyncDatabaseHelper):
-        self.db_helper = db_helper  
+    
+    def __init__(self, transactions_pg: TransactionsRepositoryPostgres):
+        self.transactions_pg = transactions_pg  
 
     async def check_payment(self, payment_id: UUID) -> Optional[str]:
         """Проверяет, есть ли платеж с данным UUID в БД и возвращает токен, если есть."""
-        async with self.db_helper.session_only() as session:
-            query = select(Transactions).where(Transactions.payment_id == payment_id)
-            result = await session.execute(query)
-            if result.scalar_one_or_none() is not None:
-                return PaymentProcessor._get_secret_token()
+        tx = self.transactions_pg.find(payment_id)
+        if tx.scalar_one_or_none() is not None:
+            return PaymentProcessor._get_secret_token()
         return None
         
     @staticmethod
@@ -37,41 +31,68 @@ class PaymentProcessor:
         return "SUPER_SECRET_TOKEN"   
     
 class TransactionService:
-    def __init__(self, db_helper, redis_repository: MigrationRepository):
-        self.db_helper = db_helper
+    """ Сервис управления жизненным циклом платежа """
+    REDIS_KEY_TEMPLATE = "transaction:{payment_hash}"
+    
+    def __init__(self, redis_repository: TransactionsRepositoryRedis, transactions_pg: TransactionsRepositoryPostgres):
         self.redis_repository = redis_repository
+        self.tariffs_pg = transactions_pg
 
-    async def create_transaction(self, user_id: int, tariff_name: str) -> str:
-        """Создаёт транзакцию в Redis и возвращает payment_hash"""
+    async def create_transaction_redis(self, user_id: int, tariff: TariffData) -> str:
+        """Создаёт транзакцию в Redis и возвращает данные для формирования calldata """
         payment_id = str(uuid.uuid4())
         
-        async with self.db_helper.session_only() as session:
-            tariff = await self._get_tariff_or_raise(tariff_name, session)
-        payment_hash = TransactionService.compute_payment_hash(payment_id, tariff.tariff_id, tariff.price)
-        data = {
-            "payment_id": payment_id,
-            "user_id": user_id,
-            "tariff_id": tariff.tariff_id,
-            "amount": tariff.price,
-            "status": "pending",
-            "created_at": datetime.utcnow().isoformat(),
-        }
-        key = f"transaction:{payment_hash}"
-        await self.redis_repository.create_transaction(key, json.dumps(data), expire_seconds=3600)
-        return payment_hash
-
-    # TODO: Искать тариф по UUID
-    async def _get_tariff_or_raise(self, tariff_name: str, session: AsyncSession) -> Tariffs:
-        """Возвращает тариф или бросает исключение, если не найден."""
-        query = select(Tariffs).where(Tariffs.name == tariff_name, Tariffs.is_active == True)
-        result = await session.execute(query)
-        tariff = result.scalar_one_or_none()
-        if not tariff:
-            raise ValueError(f"Tariff '{tariff_name}' not found")
-        return tariff
+        data = TransactionData(
+            payment_id=payment_id,
+            user_id=user_id,
+            tariff_id=tariff.tariff_id,
+            amount=tariff.price,
+            created_at=datetime.utcnow(),
+        )
+        payment_hash = TransactionService.compute_payment_hash(data.payment_id, data.tariff_id)
+        key = self._make_redis_key(payment_hash)
+        
+        await self.redis_repository.create_transaction(key, json.dumps(data, default=str), expire_seconds=3600)
+        return data
+    
+    async def migrate_transaction(self, payment_hash: str):
+        tx = await self._find_transaction_redis(payment_hash)
+        new_tx = await self._create_transaction_postgres(tx)
+        if new_tx:
+            delete_tx = await self._delete_transaction_redis(payment_hash)
+            return delete_tx
+        else:
+            raise 
+    
+    async def _find_transaction_redis(self, payment_hash):
+        key = self._make_redis_key(payment_hash)
+        data = await self.redis_repository.find_transaction(key)
+        tx = TransactionData(**data)
+        return tx
+    
+    async def _create_transaction_postgres(self, tx):
+        tx = self.tariffs_pg.create(tx)
+        return tx
+    
+    async def _delete_transaction_redis(self, payment_hash):
+        key = self._make_redis_key(payment_hash)
+        return await self.redis_repository.delete_transaction(key)
+        
+    async def _prepare_data(self, payment_id: UUID, user_id: str, tariff_id: UUID, tariff_price: int):
+        return TransactionData(
+        payment_id=payment_id,
+        user_id=user_id,
+        tariff_id=tariff_id,
+        amount=tariff_price,
+        created_at=datetime.utcnow(),
+    )
+    
+    @classmethod
+    def _make_redis_key(cls, payment_hash: str) -> str:
+        return cls.REDIS_KEY_TEMPLATE.format(payment_hash=payment_hash)
     
     @staticmethod
-    def compute_payment_hash(payment_id: str, tariff_id: str, tariff_price: int) -> str:
-        data = f"{payment_id}{tariff_id}{tariff_price}"
+    def compute_payment_hash(payment_id: str, tariff_id: str) -> str:
+        data = f"{payment_id}{tariff_id}"
         return hashlib.sha256(data.encode()).hexdigest()
     

@@ -3,7 +3,7 @@ from redis.asyncio import Redis as AsyncRedis
 from typing import Optional, Union
 import json
 
-class MigrationRepository:
+class TransactionsRepository:
     def __init__(self, redis_client: Union[SyncRedis, AsyncRedis]):
         self.redis = redis_client
         self.last_block_key = "last_processed_block"
